@@ -234,7 +234,7 @@ class WorkerParser:
                 for entry in parsed_file.entries:
                     entry.worker_id = worker_id
                 log_files.append(parsed_file)
-                ProgressTracker.update_current(1)
+                ProgressTracker.update_current(ProgressTracker.FILES_PER_UNIT)
             except Exception:
                 pass
 

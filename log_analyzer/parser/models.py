@@ -53,6 +53,9 @@ class ProgressTracker:
     使用单例模式，通过类方法 set() 和 get() 访问。
     """
 
+    # 每次进度更新对应的文件数量
+    FILES_PER_UNIT = 1
+
     _instance: Optional['ProgressTracker'] = None
 
     def __init__(self, total: int, description: str = "Processing"):
