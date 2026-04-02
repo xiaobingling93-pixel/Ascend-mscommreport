@@ -57,6 +57,9 @@ class ExecTimeoutExtractor:
     # 匹配超时时间配置
     EXEC_TIMEOUT = re.compile( r'HCCL_EXEC_TIMEOUT set by.*\[(\d+)]s')
 
+    # 默认超时时间
+    DEFAULT_EXEC_TIMEOUT = "1000"
+
     @staticmethod
     def get_op_info_map(context: FaultContext, fault_group: FaultGroup, info_type: str):
         """
@@ -72,6 +75,17 @@ class ExecTimeoutExtractor:
         """
 
         info_rank_map = {}
+        pattern = None
+        if info_type == "op_type":
+            pattern = ExecTimeoutExtractor.EXEC_OPERATION_TYPE
+        elif info_type == "op_data_size":
+            pattern = ExecTimeoutExtractor.EXEC_DATA_SIZE
+        elif info_type == "op_data_type":
+            pattern = ExecTimeoutExtractor.EXEC_DATA_TYPE
+
+        if not pattern:
+            return info_rank_map
+
         for logItem in fault_group.logs:
             log_entries = ExecTimeoutExtractor.get_log_file_entries(context, logItem.source_file)
 
@@ -83,27 +97,13 @@ class ExecTimeoutExtractor:
                     break
 
             for entry in log_entries:
-                operation_iter = []
-                if info_type == "op_type":
-                    operation_iter = list(ExecTimeoutExtractor.EXEC_OPERATION_TYPE.finditer(entry.raw_line))
-
-                if info_type == "op_data_size":
-                    operation_iter = list(ExecTimeoutExtractor.EXEC_DATA_SIZE.finditer(entry.raw_line))
-
-                if info_type == "op_data_type":
-                    operation_iter = list(ExecTimeoutExtractor.EXEC_DATA_TYPE.finditer(entry.raw_line))
-
-                if operation_iter:
-                    operation_info = operation_iter[0].group(1)
-
-                    if not info_rank_map.get(operation_info):
-                        info_rank_map[operation_info] = []
-
-                    info_rank_map[operation_info].append({"rank_id":rank_id, "source_file":logItem.source_file})
+                match = next(pattern.finditer(entry.raw_line), None)
+                if match:
+                    operation_info = match.group(1)
+                    info_rank_map.setdefault(operation_info, []).append({"rank_id":rank_id, "source_file":logItem.source_file})
                     break
 
         return info_rank_map
-
 
     @staticmethod
     def get_rank_info(context: FaultContext, path: str):
@@ -178,12 +178,12 @@ class ExecTimeoutExtractor:
 
         Args:
             context: 上下文数据
-            fault_group: 当前通信域信息
+            comm_info: 当前通信域信息
 
         Returns:
             提取的超时配置数据
         """
-        exec_timeout = "1000"
+        exec_timeout = ExecTimeoutExtractor.DEFAULT_EXEC_TIMEOUT
         run_log_paths = context.get_run_plog_path(comm_info.identifier, comm_info.rank_id)
         if not run_log_paths:
             return int(exec_timeout)
@@ -223,13 +223,6 @@ class ExecTimeoutExtractor:
                     rank_id_list.append(rank_id)
                     break
 
-        index = 0
-        no_timeout_ranks = []
-        while index < comm_info.ranks:
-            rank_id_str = str(index)
-            if rank_id_str not in rank_id_list:
-                no_timeout_ranks.append(rank_id_str)
-
-            index = index + 1
+        no_timeout_ranks = [str(i) for i in range(comm_info.ranks) if str(i) not in rank_id_list]
 
         return no_timeout_ranks
