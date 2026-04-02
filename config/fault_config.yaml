@@ -1,0 +1,392 @@
+# 故障分类和解决方案配置文件
+# Fault classification and solutions configuration
+
+# 日志解析规则（可扩展）
+log_patterns:
+  # 时间格式
+  timestamp:
+    - '\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+'  # HCCL格式：2025-9-11-01:20:11.205.312 或 2025-11-20-10:21:46.397.871
+    - '\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}'  # 标准格式：2025-11-20 10:21:46
+    - '\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}'  # US格式：11/20/2025 10:21:46
+    - '\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}'  # 英文格式：Nov 20 10:21:46
+
+  # 日志级别
+  level:
+    - '\[(ERROR|error|Error)\]'
+    - '\[(WARN|warn|Warn|WARNING)\]'
+    - '\[(INFO|info)\]'
+    - '\[(DEBUG|debug)\]'
+
+# 故障分类定义（三级分类）
+fault_categories:
+  # 一级分类：中断
+  interruption:
+    name: "中断"
+    description: "系统中断相关故障"
+
+    # 二级分类：环境配置异常
+    env_config:
+      name: "环境配置异常"
+      description: "环境变量配置相关故障"
+
+      # 三级分类：环境变量配置不符合取值范围
+      invalid_range:
+        name: "环境变量配置不符合取值范围"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'externalinput\.cc.*\[.*?\]\s+is\s+invalid\.?\s*except:'
+        solutions:
+          - title: "修正环境变量取值范围"
+            description: "环境变量 {env_var} 的当前值 {current_value} 超出有效范围。请将该变量设置为期望范围内的值：[{expected_range}]"
+            variables:
+              env_var: {extract: '([A-Z_]+)\[\d+\]', default: "环境变量"}
+              current_value: {extract: '[A-Z_]+\[(\d+)\]', default: "未知"}
+              expected_range: {extract: 'except:\s*\[([0-9,\s]+)\]', default: "有效范围"}
+
+      # 三级分类：HCCL_SOCKET_IFNAME环境变量指定的host网卡不存在
+      invalid_ifname:
+        name: "HCCL_SOCKET_IFNAME环境变量指定的host网卡不存在"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'get host ip fail by socket Ifname'
+        solutions:
+          - title: "指定网卡在当前环境不存在"
+            description: "请修改HCCL_SOCKET_IFNAME环境变量，指定为环境上存在的Host网卡。\n\n当前环境查询到的网卡列表：\n{available_nics}\n\n请从上述网卡中选择一个正确的网卡名称配置到HCCL_SOCKET_IFNAME环境变量中。"
+            variables:
+              ifname: {extract: 'set ifname to \[([^\]]+)\]', default: "网卡名"}
+              available_nics:
+                extract: 'name\[([^\]]+)\]\s+ip\[([^\]]+)\]'
+                extract_all: true
+                format: '{0} - IP: {1}'
+                default: "未找到可用网卡"
+
+    # 二级分类：集群信息协商异常
+    cluster_negotiation:
+      name: "集群信息协商异常"
+      description: "集群通信协商相关故障"
+
+      # 三级分类：server节点端口绑定失败
+      server_port_bind_fail:
+        name: "server节点端口绑定失败"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'socket\s+type\[2\].*listen\s+on\s+ip\[.*\].*specific\s+port\[\d+\].*fail'
+        solutions:
+          - title: "Server节点端口绑定失败"
+            description: "Server节点ip[{ip_addr}]port[{port_number}]绑定失败。可以通过如下方式配置端口范围：\n   1，通过HCCL_IF_BASE_PORT环境变量指定Host网卡的起始端口号及设置端口号预留范围。\n   2，若业务上需要在单个NPU上同时执行多个进程，则需通过HCCL_HOST_SOCKET_PORT_RANGE设置HCCL在Host侧使用的通信端口范围来避免多进程之间端口使用冲突"
+            variables:
+              ip_addr: {extract: 'listen on ip\[([^\]]+)\]', default: "**"}
+              port_number: {extract: 'specific port\[(\d+)\]', default: "**"}
+
+      # 三级分类：部分rank未连接到server节点
+      rank_not_connected:
+        name: "部分rank未连接到server节点"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'topo\s+exchange\s+server.*get\s+socket\s+timeout'
+          - '\[InitCommRootInfo\]Init failed'
+        solutions:
+          - title: "排查rank未下发通信域创建接口原因"
+            description: "部分 rank [{unconnected_rank_ids}] 未连接到 server 节点，检测到超时或连接失败。请从业务上排查以上 rank 没有下发对应通信域创建接口的原因，可能的原因包括：以上 rank 的任务未正常启动、进程异常退出、或网络通信异常。"
+            variables:
+              total_ranks:
+                extract: 'ranks\[(\d+)\]'
+                default: "**"
+              connected_ranks:
+                extract: '\[([0-9a-fA-F]+)\]'
+                extract_all: true
+                default: "未知"
+              unconnected_rank_ids:
+                compute: "missing_ranks"
+                from_vars:
+                  - "connected_ranks"
+                  - "total_ranks"
+                default: "未知rank"
+
+    # 二级分类：rank table信息校验失败
+    rank_table_validation_fail:
+      name: "rank table信息校验失败"
+      description: "rank table文件校验相关故障"
+
+      # 三级分类：rank table文件路径不存在或者权限不足
+      invalid_path_or_permission:
+        name: "rank table文件路径不存在或者权限不足"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'is not a valid real path'
+        solutions:
+          - title: "修正rank table文件路径或权限"
+            description: "rank table 文件 [{file_path}] 路径不存在或权限不足。解决方案：1) 修改正确的 rank table 文件路径；2) 配置正确的可读权限（chmod +r file）。"
+            variables:
+              file_path: {extract: 'path\s+([^\s]+)\s+is not a valid real path', default: "rank table文件"}
+
+      # 三级分类：ranktable字段配置错误
+      invalid_field_config:
+        name: "ranktable字段配置错误"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'JsonArrayMemberProperty'
+        solutions:
+          - title: "修正ranktable字段配置"
+            description: "ranktable中字段 [{field_name}] 配置错误，请检查该字段的值是否符合要求"
+            variables:
+              field_name: {extract: 'Name\[([^\]]+)\]', default: "字段名"}
+
+      # 三级分类：superDeviceId重复
+      duplicate_super_device_id:
+        name: "superDeviceId重复"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'superDeviceId\[.*\].*in\s+superPod\[.*\].*is\s+already\s+exist'
+        solutions:
+          - title: "配置正确的HCCL_LOGIC_SUPERPOD_ID环境变量"
+            description: "superDeviceId [{device_id}] 在超节点 [{super_pod_name}] 中重复。superDeviceId 是 Atlas A3 系列产品内 device 的唯一标识。解决方案：正确配置 HCCL_LOGIC_SUPERPOD_ID 环境变量，避免同一个超节点内出现 SDID 相同的设备。"
+            variables:
+              device_id: {extract: 'superDeviceId\[([^\]]+)\]', default: "设备ID"}
+              super_pod_name: {extract: 'in\s+superPod\[([^\]]+)\]', default: "超节点名称"}
+
+      # 三级分类：device_ip字段校验失败
+      invalid_device_ip:
+        name: "device_ip字段校验失败"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'the\s+IP\s+address.*in\s+the\s+ranktable\s+is\s+inconsistent\s+with\s+the\s+IP\s+address.*of\s+the\s+network\s+adapter'
+        solutions:
+          - title: "修正ranktable中的device IP配置"
+            description: "绑定的device对应的device ip为{actual_ip}，但是在ranktable中配置的device ip为{ranktable_ip}，请修改ranktable配置和rank实际执行的device ip保持一致"
+            variables:
+              ranktable_ip: {extract: 'the IP address\(([^\)]+)\) in the ranktable', default: "**"}
+              actual_ip: {extract: 'with the IP address \(([^\)]+)\) of the network adapter', default: "**"}
+
+      # 三级分类：IP Family校验不一致
+      ip_family_mismatch:
+        name: "IP Family校验不一致"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'device\s+ip\s+family\[.*\]\s+is\s+not\s+same\s+with\s+others'
+        solutions:
+          - title: "统一所有rank的IP Family配置"
+            description: "rank [{rank_num}] 的 device ip family [{current_family}] 与其他 rank 的 ip family [{other_family}] 不一致。解决方案：同一次作业的所有 rank 的 IP Family 应该保持一致（要么都是 IPv4，要么都是 IPv6）。"
+            variables:
+              rank_num: {extract: 'rank\[(\d+)\]', default: "未知rank"}
+              current_family: {extract: 'family\[(\d+)\]', default: "当前IP Family"}
+              other_family: {extract: 'others\[(\d+)\]', default: "其他IP Family"}
+
+      # 三级分类：TLS信息配置不一致
+      tls_config_inconsistent:
+        name: "TLS信息配置不一致"
+        business_stage: "通信域初始化"
+        patterns:
+          - 'Some\s+ranks\s+tlsStatus.*inconsistent.*Inconsistent\s+serverId/rankId'
+          - 'Same\s+ranks\s+tlsStatus\s+are\s+inconsistent'
+        solutions:
+          - title: "统一所有Device的TLS配置"
+            description: "serverId/rankId[{inconsistent_ranks}]的TLS状态不一致，建议统一修改TLS状态为使能，可通过hccn tool修改状态"
+            variables:
+              inconsistent_ranks: {extract: 'Inconsistent\s+serverId/rankId:\[([^\]]+)\]', default: "IP/rankId"}
+
+    # 二级分类：参数面端口绑定失败
+    parameter_plane_port_bind_fail:
+      name: "参数面端口绑定失败"
+      description: "参数面端口绑定相关故障"
+
+      # 三级分类：device侧网卡端口被占用
+      device_port_occupied:
+        name: "device侧网卡端口被占用"
+        business_stage: "参数面建链"
+        patterns:
+          - 'socket\s+type\[[01]\].*specific\s+port\[\d+\].*fail'
+        solutions:
+          - title: "配置HCCL_NPU_SOCKET_PORT_RANGE环境变量"
+            description: "当前rank或进程在通信算子参数面建链时需要绑定一个device侧网卡的端口，但发现端口已被其他进程占用。HCCL使用device侧网卡的端口时默认需绑定16666端口，因此若有多个进程执行在同一个device上，且均会调用HCCL的通信算子接口，那么就会出现端口已被其他进程绑定导致失败的问题。可先从业务上排查多个进程跑在同一个device上是否符合任务预期，若符合任务预期结果，可通过配置HCCL_NPU_SOCKET_PORT_RANGE环境变量使能多进程场景，如：export HCCL_NPU_SOCKET_PORT_RANGE=\"auto\""
+            variables:
+              ip_addr: {extract: 'listen on ip\[([^\]]+)\]', default: "**"}
+              port_number: {extract: 'specific port\[(\d+)\]', default: "**"}
+
+    # 二级分类：OP内存申请失败
+    op_memory_oom:
+      name: "OP内存申请失败"
+      description: "OP内存申请相关故障"
+
+      # 三级分类：OP内存资源申请OOM
+      op_memory_oom:
+        name: "OP内存资源申请OOM"
+        business_stage: "参数面建链"
+        patterns:
+          - 'Resource_Error_Insufficient_Device_Memory'
+        solutions:
+          - title: "调整业务配置释放内存"
+            description: "调整业务配置（如batchSize）,减少ROCE链路的使用数量，或释放部分内存解决问题"
+
+      # 三级分类：cclBuffer申请失败
+      cclbuffer_memory_fail:
+        name: "cclBuffer申请失败"
+        business_stage: "参数面建链"
+        patterns:
+          - 'ra qp create fail, reason: out of memory'
+        solutions:
+          - title: "调整HCCL_BUFFSIZE环境变量"
+            description: "HCCL的cclBuffer内存申请失败,可通过配置HCCL_BUFFSIZE环境变量调整申请的内存大小"
+
+    # 二级分类：建链超时
+    link_establish_timeout:
+      name: "建链超时"
+      description: "建链超时相关故障"
+
+      # 三级分类：参数面建链超时
+      param_plane_link_establish_timeout:
+        name: "参数面建链超时"
+        business_stage: "参数面建链"
+        patterns:
+          - 'wait\s+socket\s+establish\s+timeout'
+          - 'Transport init error'
+        solutions:
+          - title: "本端rank与对端rank建链超时"
+            description: "本端rank是rank[{rank}]"
+            variables:
+              rank: {extract: 'rank\[([0-9]+)\]', default: "未知"}
+
+#      # 三级分类：对端没有同步下发对应的通信算子
+#      peer_no_communication_operator:
+#        name: "对端没有同步下发对应的通信算子"
+#        business_stage: "参数面建链"
+#        patterns:
+#          - 'wait\s+socket\s+establish\s+timeout'
+#        solutions:
+#          - title: "排查通信算子下发行为一致性"
+#            description: "从业务上排查两端的通信算子下发行为是否一致"
+
+#      # 三级分类：参数面建链超时外的其他报错
+#      other_link_establish_error:
+#        name: "参数面建链超时外的其他报错"
+#        business_stage: "参数面建链"
+#        patterns:
+#          - 'wait\s+socket\s+establish\s+timeout'
+#        solutions:
+#          - title: "排查对端报错原因"
+#            description: "需要先排查对端的报错原因"
+
+    # 二级分类：参数一致性校验
+    parameter_consistency_check:
+      name: "参数一致性校验"
+      description: "参数一致性校验相关故障"
+
+      # 三级分类：参数一致性校验
+      parameter_consistency_check:
+        name: "参数一致性校验"
+        business_stage: "参数面建链"
+        patterns:
+          - 'CMD\s+information.*check\s+fail'
+        solutions:
+          - title: "排查参数校验不一致原因"
+            description: "业务上排查参数校验不一致的两端下发的算子不一致的原因"
+
+    # 二级分类：集群心跳机制
+    cluster_heartbeat:
+      name: "集群心跳机制"
+      description: "集群心跳机制相关故障"
+
+      # 三级分类：进程退出
+#      process_exited:
+#        name: "进程退出"
+#        business_stage: "通信算子执行"
+#        patterns:
+#          - 'Heartbeat\s+Lost\s+Occurred'
+#        solutions:
+#          - title: "排查节点退出或网络异常"
+#            description: "排查异常所在的节点在异常广播到本端的时间是否已经提前退出或者节点网络异常无法连接"
+
+      # 三级分类：进程卡死
+#      process_stuck:
+#        name: "进程卡死"
+#        business_stage: "通信算子执行"
+#        patterns:
+#          - 'Stuck\s+Occurred'
+#        solutions:
+#          - title: "排查进程卡死或死锁"
+#            description: "排查异常所在的节点的业务进程是否卡死在某个节点或者发生了死锁"
+
+      # 三级分类：网络问题
+#      network_error:
+#        name: "网络问题"
+#        business_stage: "通信算子执行"
+#        patterns:
+#          - 'Error\s+cqe\s+Occurred'
+#        solutions:
+#          - title: "排查CQE错误"
+#            description: "排查异常所在的节点是否发生了cqe error"
+
+    # 二级分类：task exception机制
+    task_exception:
+      name: "task exception机制"
+      description: "task exception机制相关故障"
+
+      # 三级分类：notify wait超时
+      notify_wait_timeout:
+        name: "notify wait超时"
+        business_stage: "通信算子执行"
+        patterns:
+          - 'HCCL.*FFTS.*run\s+failed'
+          - 'HCCL.*Task.*run\s+failed'
+          - 'HCCL.*Heartbeat\s+Lost\s+Occurred'
+          - 'HCCL.*Stuck\s+Occurred'
+          - 'HCCL.*Error\s+cqe\s+Occurred'
+        solutions:
+          - title: "通信算子执行超时"
+            description: "通信域内所有的rank的算子、数据量、数据类型一致，未见异常\n通信域内rank报错时间间隔未超HCCL_EXEC_TIMEOUT配置时间，未见异常\n建议开启HCCL_ENTRY_LOG_ENABLE环境变量复现用例，排查算子下发是否存在异常"
+
+      # 三级分类：算子下发行为异常
+#      operator_abnormal:
+#        name: "算子下发行为异常"
+#        business_stage: "通信算子执行"
+#        patterns:
+#          - 'Entry-HcclAllReduce:.*tag'
+#        solutions:
+#          - title: "开启HCCL_ENTRY_LOG_ENABLE环境变量"
+#            description: "可开启HCCL_ENTRY_LOG_ENABLE环境变量后再复现一次用例"
+
+      # 三级分类：SDMA ERROR
+      sdma_error:
+        name: "SDMA ERROR"
+        business_stage: "通信算子执行"
+        patterns:
+          - 'fftsplus\s+sdma\s+error'
+        solutions:
+          - title: "排查SDMA错误原因"
+            description: "1，未执行流同步确认通信算子执行完成就析构通信域，由于通信域析构会释放集合通信的HCCL Buffer地址，因此会导致SDMA内存拷贝时页表转换失败。\n   2，网络链路故障也会导致SDMA ERROR，此时需要检查两端之间的链路状态。\n   3，调用HCCL通信算子时，传入的输入或输出的地址实际分配的内存大小与传入的数据量要一致。"
+
+    # 二级分类：ERROR CQE报错
+    error_cqe:
+      name: "ERROR CQE报错"
+      description: "ERROR CQE报错相关故障"
+
+      # 三级分类：Roce报文的重传超时
+      roce_retransmission_timeout:
+        name: "Roce报文的重传超时"
+        business_stage: "通信算子执行"
+        patterns:
+          - 'error\s+cqe\s+status'
+        solutions:
+          - title: "排查ERROR CQE原因"
+            description: "1，排查是否存在网口闪断。\n   2，排查对端的业务进程在本端发生ERROR CQE时是否先异常退出或已进入资源销毁流程。\n   3，若环境变量配置的HCCL_RDMA_TIMEOUT重传超时时间及HCCL_RDMA_RETRY_CNT重传次数比较小，在链路状态不佳时容易出现ERROR CQE错误，将环境变量调大即可。\n   4，一般为多机场景时才会有down/CQE上报执行当前网口已down掉，若HCCP ra_hdc ret返回码为-67，则为网口down。"
+
+    # 二级分类：aiv通信算子执行失败
+    aiv_operator_fail:
+      name: "aiv通信算子执行失败"
+      description: "aiv通信算子执行失败相关故障"
+
+      # 三级分类：aiv通信算子执行失败
+      aiv_operator_fail:
+        name: "aiv通信算子执行失败"
+        business_stage: "通信算子执行"
+        patterns:
+          - 'fault\s+kernel_name=aiv_all_reduce_910b_bfloat16_t'
+        solutions:
+          - title: "暂无解决方案"
+            description: "暂无解决方案"
+
+# 全局变量（可在解决方案中引用）
+global_variables:
+  default_contact: "运维团队"
+  emergency_contact: "值班电话 123-4567"
+  doc_url: "https://docs.example.com/troubleshooting"
