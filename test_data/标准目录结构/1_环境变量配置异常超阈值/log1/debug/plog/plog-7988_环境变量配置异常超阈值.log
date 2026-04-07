@@ -1,0 +1,5 @@
+[ERROR] HCCL(7988,python3.11):2025-10-23-17:30:40.098.973 [externalinput.cc:963] [33979526][Parse][rdmaServerLevel]HCCL_RDMA_SL[1000] is invalid. except: [0, 7]
+[ERROR] HCCL(7988,python3.11):2025-10-23-17:30:40.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[172.16.1.148%eth0_64000_0_1757081746616696]
+[ERROR] HCCL(7988,python3.11):2025-10-23-17:30:40.099.058 [externalinput.cc:169] [33979526][Init][EnvVarParam]errNo [0x0000000005000001] In init env variable param, parse HCCL_RDMA_SL failed. errno[1]
+[ERROR] HCCL(7988,python3.11):2025-10-23-17:30:40.099.063 [externalinput.cc:47] [33979526][InitExternalInput]] call trace: hcclRet->1
+[ERROR] HCCL(7988,python3.11):2025-10-23-17:30:40.099.068 [op_base.cc:866] [33979526][HcclGetRootInfo]] call trace: hcclRet->1

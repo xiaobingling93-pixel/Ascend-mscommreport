@@ -1,0 +1,2 @@
+[INFO]HCCL(64452,python):2025-9-11-01:08:11.205.229 [op_base.cc:560][10262]ra_socket_listen_start : Input parameters: [0]th, phy_id[0], local_ip[172.16.1.248], port[64000]
+[INFO]HCCL(10262,python):2025-9-11-01:20:11.205.205 [op_base.cc:560][10262]Entry-HcclCommInitRootInfoInner:ranks[16], rank[0], rootinfo: host ip[172.16.1.248] port[64000] nicDeploy[1] identifier[172.16.1.148%eth0_64000_0_1757081746616696], deviceLogicId[0]

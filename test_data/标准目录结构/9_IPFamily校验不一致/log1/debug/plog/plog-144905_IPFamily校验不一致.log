@@ -1,0 +1,2 @@
+[ERROR] HCCL(144905,python):2026-04-20-00:26:54.435.048 [config.cc:413] [145735][check][RankIpFamily]rank[0] device ip family[2] is not same with others[10].
+[ERROR] HCCL(144905,python):2026-04-20-00:26:54.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[172.16.1.148%eth0_64000_0_1757081746616696]

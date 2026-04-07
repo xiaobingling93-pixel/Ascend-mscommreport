@@ -1,0 +1,2 @@
+[ERROR] RUNTIME(57096,python3.10):2025-10-24-11:18:29.499.235 [task_info.cc:1170]57288 PrintSdmaErrorInfoForFftsPlusTask:fftsplus task execute failed, dev_id=0, stream_id=50, task_id=21, context_id=18, thread_id=0, err_type=4[fftsplus sdma error]
+[ERROR] RUNTIME(57096,python3.10):2025-10-24-11:18:29.499.247 [task_info.cc:1270]57288 TaskFailCallBackForFftsPlusTask:fftsplus streamId=50, taskId=21, context_id=18, expandtype=1, rtCode=0x715006c,[fftsplus task exception], psStart=0x0, kernel_name=not found kernel name, binHandle=(nil), binSize=0.

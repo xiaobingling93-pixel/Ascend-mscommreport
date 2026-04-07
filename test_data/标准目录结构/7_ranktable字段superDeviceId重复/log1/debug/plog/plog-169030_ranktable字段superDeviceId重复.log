@@ -1,0 +1,2 @@
+[ERROR] HCCL(169030,alltoall_test):2025-10-23-16:28:59.392.635 [topoinfo_exchange_agent.cc:695] [169030][Verify][SuperPodInfo] superDeviceId[0x3000000]in superPod[super_pod_id_0]is already exist
+[ERROR] HCCL(169030,alltoall_test):2025-10-23-16:28:59.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[172.16.1.148%eth0_64000_0_1757081746616696]

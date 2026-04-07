@@ -1,0 +1,1 @@
+[ERROR] HCCL(137309,all_reduce_test):2025-03-14-15:43:53.370.052 [transport_manager.cc:954] [137400][InitChannelStage][Timeout]Transport init error! createLink para:rank[0]-localUserrank[0]-localIpAddr[172.27.51.2/0], remoteRank[24]-remoteUserrank[24]-remoteIpAddr[172.27.51.26/1], machineType[0], linkMode[1], isUsedRdma[0], tag[172.27.41.90%eth0_64000_0_1757081746616696]

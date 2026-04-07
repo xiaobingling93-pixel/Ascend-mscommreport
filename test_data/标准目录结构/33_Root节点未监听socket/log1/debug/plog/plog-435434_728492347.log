@@ -1,0 +1,3 @@
+[ERROR] HCCL(435435,all_reduce_test):2025-9-11-01:20:11.205.400 [topoinfo_exchange_base.cc:119] [435435][Recv][ClusterInfoMsg] TopoDetect ERROR occur !!! fault_type[1], fault_info["Failed to connect agent[3,]"]
+[ERROR] HCCL(435435,all_reduce_test):2025-9-11-01:20:11.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[172.16.1.148%eth0_64000_0_1757081746616696]
+[ERROR] HCCL(435435,all_reduce_test):2025-9-11-01:20:11.205.404 [topoinfo_exchange_agent.cc:534] [435435][Verify][ClusterInfo] rank num[4] is different with rank list size[3] in total topo rank info.

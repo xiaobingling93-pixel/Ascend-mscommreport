@@ -1,0 +1,2 @@
+[INFO]HCCL(350697,python):2025-9-11-01:20:11.205.210 [op_base.cc:560][350697]Entry-HcclCommInitRootInfoInner:ranks[16], rank[9], rootinfo: host ip[172.16.1.248] port[64000] nicDeploy[1] identifier[172.16.1.148%eth0_64000_0_1757081746616696], deviceLogicId[6]
+[INFO]HCCP(350697,python):2025-9-11-01:20:11.205.220 [op_base.cc:560][350697]ra_socket_batch_connect(770) : Input parameters: [0]th, phy_id[6], local_ip[172.222.8.248], remote_ip[172.16.1.248], tag[172.16.1.148%eth0_64000_0_1757081746616696_640000]

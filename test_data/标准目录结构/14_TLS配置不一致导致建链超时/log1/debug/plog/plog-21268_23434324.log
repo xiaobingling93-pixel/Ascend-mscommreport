@@ -1,0 +1,23 @@
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.051 [hccl_socket_manager.cc:813] [137400][Wait][LinkEstablish]wait socket establish timeout, role[0] rank[0] timeout[480 s]
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.230 [hccl_socket_manager.cc:877] [137400][Wait][LinksEstablishCompleted] is failed. ret[9].
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.442 [hccl_socket_manager.cc:639] [137400]   _________________________LINK_ERROR_INFO___________________________
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.448 [hccl_socket_manager.cc:640] [137400]   |  comm error, device[0]
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.448 [hccl_socket_manager.cc:642] [137400]   |  dest_ip(user_rank)  |   dest_port   |  src_ip(user_rank)   |   src_port   |   MyRole   |   Status   |    TlsStatus   |
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.448 [hccl_socket_manager.cc:644] [137400]   |----------------------|---------------|----------------------|--------------|------------|------------|----------------|
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.448 [hccl_socket_manager.cc:599] [137400]   |  172.27.51.26(24)   |  16666  |   172.27.51.2(0)   |  0  |  server  | time out |   ENABLE  | LinkInfo
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.448 [hccl_socket_manager.cc:852] [137400][Create][Sockets]Wait links establish completed failed, local role is client. ret[9]
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.448 [transport_manager.cc:1031] [137400][SetMachinePara]call trace: hcclRet -> 9
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:45.370.448 [transport_manager.cc:882] [137400][CreateLink][InitChannelStage][Timeout]SetMachinePara error.
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:27.370.448 [detect_connect_anomalies.cc:494] [140699][CreateClientConnect]GetStatus fail, ret[9]
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.448 [detect_connect_anomalies.cc:126] [137400]-------------------CONNECT TIMEOUT DETECT RESULT-----------------------
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.448 [detect_connect_anomalies.cc:129] [137400]TRANSPORT DETECT EVENT[1]:Rank[127.10.0.1/0]: srcRank[127.10.0.1/0] connect destRank[127.10.0.1/6] fail.
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.448 [detect_connect_anomalies.cc:134] [137400]----------------------------------------------------------------------
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.448 [detect_connect_anomalies.cc:135] [137400]The error above was caused by a failure at the site in the cluster where the events happened.Please confirm whether the link between SRCRANK and DSTRANK or the DSTRANK process is healthy.
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.448 [detect_connect_anomalies.cc:136] [137400]NOTE: The detection results are only used to assist in locating the problem and may not represent the actual fault site in some complex scenarios. Please continue to analyze and confirm based on the current detected fault site
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.448 [detect_connect_anomalies.cc:143] [137400]----------------------------------------------------------------------
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.502 [transport_manager.cc:470] [21268][Alloc]call trace: hcclRet -> 9
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.502 [hccl_communicator_host.cc:6097] [21268][AllocAlgResource]Alloc transports failed, tag[172.27.41.90%eth189s0f0_60000_0_1757081746616696]
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.502 [hccl_communicator_host.cc:4216] [21268][HcclCommunicator][ExecOp] AllocAlgResource failed, algName=[AllReduceMeshSmallCountExecutor]
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.502 [hccl_communicator_host.cc:2896] [21268][AllReduceOutPlace]call trace: hcclRet -> 9
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.502 [hccl_comm.cc:304] [21268][HcclComm][AllReduce_127.10.0.1%enp_60000_0_1766564263542840]errNo[0x0000000000000009] index[0]
+[ERROR] HCCL(21268,all_reduce_test):2025-03-14-15:43:36.370.502 [op_base_host.cc:166] [21268][HcclAllReduceInner]call trace: hcclRet -> 9

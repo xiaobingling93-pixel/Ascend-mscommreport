@@ -1,0 +1,2 @@
+[INFO] HCCL(10262,python):2025-03-14-15:38:49.625.442 [op_base.cc:560][10262]hcclCommInitInfo:commId[18329-hccl_world_group], rank[1], totalRanks[2], serverId[172.27.41.90], deviceType[2],logicDevId[0], identifier[hccl_world_group]
+[INFO]HCCP(10262,python):2025-03-14-15:38:49.725.442 [op_base.cc:560][10263]ra_socket_batch_connect(770) : Input parameters: [0]th, phy_id[6], local_ip[172.27.41.91], remote_ip[172.27.41.90], tag[hccl_world_group_640000]

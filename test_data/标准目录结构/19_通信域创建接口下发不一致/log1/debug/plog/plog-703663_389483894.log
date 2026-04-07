@@ -1,0 +1,2 @@
+[ERROR] HCCL(703660,python):2025-03-14-16:28:54.538.856 [adapter_hccp.cc:1337] [2795][Recv][RaSocket]errNo[0x0000000005000013] Wait timeout for sockets recv, data[0xdf25ef7fbaf8], size[4 Byte], recvSize[0 Byte], Peerrank did not send the data in time. Check whether the peerrank is abnormal.
+[ERROR] HCCL(703660,python):2025-03-14-16:28:54.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[10.241.29.119%eth0_30000_0_1741940238827283]

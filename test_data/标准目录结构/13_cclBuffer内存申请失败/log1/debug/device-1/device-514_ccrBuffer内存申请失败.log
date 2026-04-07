@@ -1,0 +1,2 @@
+[ERROR] HCCL(514,python):2026-05-08-01:19:45.111.856 [adapter_hccp.cc:1337] [2795][Recv][RaSocket]errNo[0x0000000005000013] ra qp create fail, reason: out of memory. qpInfo:[2], return: ret[79]
+[ERROR] HCCL(514,python):2026-05-08-01:19:45.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[172.16.1.148%eth0_64000_0_1757081746616696]

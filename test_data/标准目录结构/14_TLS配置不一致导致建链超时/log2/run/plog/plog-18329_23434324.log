@@ -1,0 +1,6 @@
+[INFO] HCCL(18329,all_reduce_test):2025-03-14-15:35:48.925.121 [externalinput.cc:490] [18329]HCCL_CONNECT_TIMEOUT set by environment to [480]s
+[INFO] HCCL(18329,python):2025-03-14-15:35:48.925.448 [op_base.cc:560][18329]Entry-HcclCommInitRootInfoInner:ranks[32], rank[24], rootinfo: host ip[172.27.41.90] port[60000] nicDeploy[1] identifier[172.27.41.90%eth189s0f0_60000_0_1757081746616696], deviceLogicId[0]
+[INFO] HCCP(18329,all_reduce_test):2025-03-14-15:35:48.929.250 [rs_ssl.c:1524]tid:18329, rs_ssl_init(1524) : TLS SWITCH (0)
+[INFO]HCCP(18329,python):2025-03-14-15:35:48.925.448 [op_base.cc:560][18329]ra_socket_listen_start : Input parameters: [0]th, phy_id[0], local_ip[172.27.51.26], port[16666]
+[INFO]HCCP(18329,python):2025-03-14-15:35:49.625.442 [op_base.cc:560][18329]ra_socket_batch_connect(770) : Input parameters: [0]th, phy_id[0], local_ip[172.27.51.26], remote_ip[172.27.51.2], tag[172.27.41.90%eth189s0f0_60000_0_1757081746616696_640000]
+[INFO]HCCP(18329,python):2025-03-14-15:44:00.000.000 [op_base.cc:560][18329]all_reduce : op completed

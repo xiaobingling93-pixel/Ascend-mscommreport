@@ -1,0 +1,1 @@
+[INFO]HCCL(703663,all_reduce_test):2025-03-14-16:17:10.302.649 [op_base.cc:965][703663]Entry-HcclCommInitRootInfoInner:ranks[8], rank[4], rootinfo: host ip[10.241.29.119] port[30000] nicDeploy[1] identifier[10.241.29.119%eth0_30000_0_1741940238827283], deviceLogicId[4]

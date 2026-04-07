@@ -1,0 +1,2 @@
+[INFO] HCCL(10262,python):2025-03-14-15:35:49.625.442 [op_base.cc:560][10262]hcclCommInitInfo:commId[hccl-3791-0-21321-hccl_world_group], rank[0], totalRanks[32], serverId[172.27.41.90], deviceType[2],logicDevId[0], identifier[hccl_world_group]
+[INFO]HCCP(21268,python):2025-03-14-15:44:53.370.052 [op_base.cc:560][21268]all_reduce : op completed

@@ -1,0 +1,6 @@
+[INFO]HCCL(514,python):2025-05-08-01:09:04.283.793 [op_base.cc:1092][2529]Entry-HcclCommInitRootInfoInner:ranks[1024], rank[211], rootinfo: host ip[10.20.6.27] port[30000] nicDeploy[1] identifier[10.20.6.27%bond1_30000_0_1746637796038326], deviceLogicId[3]
+[INFO]HCCL(514,python):2025-05-08-01:09:43.764.987 [op_base.cc:1092][2735]Entry-HcclCommInitRootInfoInner:ranks[8], rank[3], rootinfo: host ip[10.20.0.111] port[30000] nicDeploy[1] identifier[10.20.0.111%bond1_30000_0_1746637776778310], deviceLogicId[3]
+[INFO]HCCL(514,python):2025-05-08-01:09:45.099.910 [op_base.cc:1092][2795]ra_socket_listen_start : Input parameters: [0]th, phy_id[0], local_ip[10.20.0.111], port[30003]
+[INFO]HCCL(514,python):2025-05-08-01:09:45.100.577 [op_base.cc:1092][2795]Entry-HcclCommInitRootInfoInner:ranks[1], rank[0], rootinfo: host ip[10.20.0.111] port[30003] nicDeploy[1] identifier[10.20.0.111%bond1_30003_3_1746637785099440310], deviceLogicId[3]
+[INFO]HCCL(514,python):2025-05-08-01:09:45.200.577 [op_base.cc:560][2796]HcclGetRootInfo success, take time [100]us, identifier[10.20.0.111%bond1_30003_3_1746637785099440310]
+[INFO]HCCP(514,python):2025-05-08-01:09:45.300.577 [op_base.cc:560][2797]ra_socket_batch_connect(770) : Input parameters: [0]th, phy_id[6], local_ip[10.20.0.111], remote_ip[10.20.0.111], tag[10.20.0.111%bond1_30003_3_1746637785099440310_640000]

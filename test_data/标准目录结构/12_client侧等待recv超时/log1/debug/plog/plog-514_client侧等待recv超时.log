@@ -1,0 +1,4 @@
+[ERROR] HCCL(514,python):2025-9-11-01:20:11.205.229 [topoinfo_exchange_server.cc:113] [57044][Get][Connection] topo exchange server get socket timeout! timeout[720 s]
+[ERROR] HCCL(514,python):2025-9-11-01:20:11.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[172.16.1.148%eth0_64000_0_1757081746616696]
+[ERROR] HCCL(514,python):2025-9-11-01:20:11.205.296 [topoinfo_exchange_server.cc:240] [57044][Get][TopoInfoExchangeServer][DisplayConnectedRank]total connected num is [7],line num is [1]
+[ERROR] HCCL(514,python):2025-9-11-01:20:11.205.304 [topoinfo_exchange_server.cc:253] [57044][Get][TopoInfoExchangeServer][DisplayConnectedRank]connected rankinfo[LINE 0]:[0000000000000000],[0000000000000001],[0000000000000002],[0000000000000003],[0000000000000004],[0000000000000005],[0000000000000006];

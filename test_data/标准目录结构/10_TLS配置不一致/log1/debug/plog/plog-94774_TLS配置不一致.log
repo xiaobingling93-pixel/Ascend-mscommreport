@@ -1,0 +1,2 @@
+[ERROR] HCCL(94774,all_reduce_test):2025-10-27-11:51:32.570.490 [topoinfo_exchange_agent.cc:831] [94774][Verify][TlsConsistency]Some ranks tlsStatus of inconsistent ranks are [Disable].Inconsistent serverId/rankId:[127.10.0.1/0];
+[ERROR] HCCL(94774,all_reduce_test):2025-10-27-11:51:32.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[172.16.1.148%eth0_64000_0_1757081746616696]

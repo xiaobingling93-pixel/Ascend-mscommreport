@@ -1,0 +1,1 @@
+[INFO] HCCL(21273,all_reduce_test):2025-03-14-15:35:51.370.050 [all_gather_operator.cc:172] [137400] all_gather SelectAlgfor is algName [AllGatherMeshOpbasePipelineExecutor]

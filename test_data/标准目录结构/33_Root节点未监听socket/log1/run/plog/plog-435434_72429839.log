@@ -1,0 +1,1 @@
+[INFO]HCCL(350697,python):2025-9-11-01:20:11.205.230 [op_base.cc:560][435434]Entry-HcclCommInitRootInfoInner:ranks[16], rank[3], rootinfo: host ip[172.16.1.248] port[64000] nicDeploy[1] identifier[172.16.1.148%eth0_64000_0_1757081746616696], deviceLogicId[2]
