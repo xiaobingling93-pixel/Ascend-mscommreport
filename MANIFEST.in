@@ -1,0 +1,2 @@
+include config/fault_config.yaml
+recursive-include config *.yaml
