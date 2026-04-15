@@ -21,7 +21,9 @@
 通信算子下发不一致
 """
 from .env_config_diff_rule import EnvConfigDiffRule
+from .send_recv_diff_rule import SendRecvDiffRule
 
 __all__ = [
     'EnvConfigDiffRule',
+    'SendRecvDiffRule',
 ]

@@ -100,7 +100,9 @@ class ExecTimeoutExtractor:
                 match = next(pattern.finditer(entry.raw_line), None)
                 if match:
                     operation_info = match.group(1)
-                    info_rank_map.setdefault(operation_info, []).append({"rank_id":rank_id, "source_file":logItem.source_file})
+                    info_rank_map.setdefault(operation_info, []).append({"rank_id":rank_id,
+                                                                         "source_file":logItem.source_file,
+                                                                         "log_messages": entry.raw_line})
                     break
 
         return info_rank_map

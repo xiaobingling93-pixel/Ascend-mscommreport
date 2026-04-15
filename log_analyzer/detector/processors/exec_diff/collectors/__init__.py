@@ -21,7 +21,9 @@ HCCL初始化参数一致性校验
 """
 
 from .exec_diff_collector import ExecDiffExtractor
+from .send_recv_diff_collector import SendRecvDiffExtractor
 
 __all__ = [
     'ExecDiffExtractor',
+    'SendRecvDiffExtractor',
 ]

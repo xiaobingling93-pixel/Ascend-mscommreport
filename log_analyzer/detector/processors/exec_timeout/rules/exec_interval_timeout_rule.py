@@ -25,6 +25,7 @@ from typing import List, Optional
 from ..collectors.rank_timeout_collector import ExecTimeoutExtractor
 
 from ...base import DecisionRule
+from ....fault_constants import FAULT_NOTIFY_WAIT_TIMEOUT
 from ....models import FaultContext
 
 class ExecIntervalTimeoutRule(DecisionRule):
@@ -60,7 +61,7 @@ class ExecIntervalTimeoutRule(DecisionRule):
         """
         # 获取当前处理的 notify_wait_timeout 故障组
         current_group = context.fault_groups.get(key)
-        if not current_group or current_group.category.level3 != "notify_wait_timeout":
+        if not current_group or current_group.category.level3 != FAULT_NOTIFY_WAIT_TIMEOUT:
             return False
 
         # 获取故障组的通信域信息
@@ -94,8 +95,10 @@ class ExecIntervalTimeoutRule(DecisionRule):
                 context_info += f"rank[{rank_id_0}]报错时间{log_list_temp[index].timestamp}\n"
                 context_info += f"rank[{rank_id_1}]报错时间{log_list_temp[index+1].timestamp}\n"
                 context_info += "参考日志\n"
-                context_info += log_list_temp[index].source_file + "\n"
-                context_info += log_list_temp[index+1].source_file + "\n\n"
+                context_info += f"rank[{rank_id_0}]日志路径：{log_list_temp[index].source_file}\n"
+                context_info += log_list_temp[index].message + "\n"
+                context_info += f"rank[{rank_id_1}]日志路径：{log_list_temp[index+1].source_file}\n"
+                context_info += log_list_temp[index + 1].message + "\n\n"
             index += 1
 
         if context_info:

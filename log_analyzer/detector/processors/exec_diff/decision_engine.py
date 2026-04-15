@@ -23,7 +23,7 @@
 """
 from typing import List
 
-from .rules import EnvConfigDiffRule
+from .rules import EnvConfigDiffRule, SendRecvDiffRule
 from ..base import DecisionRule
 from ...models import FaultContext
 
@@ -40,6 +40,7 @@ class ExecDiffEngine:
         # 规则列表，数值越小优先级越高
         self._rules: List[DecisionRule] = [
             EnvConfigDiffRule(priority=10),  # 全量配置一致性排查
+            SendRecvDiffRule(priority=20),  # BatchSendRecv通信原语发送接收一致性校验
         ]
         # 按优先级排序
         self._rules.sort(key=lambda rule: rule.priority)

@@ -1,0 +1,8 @@
+[INFO]HCCL(10262,python):2025-03-14-15:35:49.625.442 [op_base.cc:560][10262]HCCL_CONNECT_TIMEOUT set by environment to [7200]s
+[INFO]HCCL(10262,python):2025-03-14-15:35:49.625.442 [op_base.cc:560][10262]HCCL_EXEC_TIMEOUT set by environment to [1800]s
+[INFO]HCCL(10262,python):2025-03-14-15:35:49.625.442 [op_base.cc:560][10262]HCCL_INTRA_PCIE_ENABLE set by environment to [1]，HCCL_INTRA_ROCE_ENABLE set by environment to [0]s
+[INFO]HCCL(10262,python):2025-03-14-15:35:49.625.442 [op_base.cc:560][10262]Entry-HcclCommInitRootInfoInner:ranks[8], rank[7], rootinfo: host ip[172.27.41.90] port[60000] nicDeploy[1] identifier[172.27.41.90%eth0_64000_0_1757081746616696], deviceLogicId[7]
+[INFO]HCCL(10262,python):2025-03-14-15:35:49.625.442 [op_base.cc:560][10262]Entry-HcclBatchSendRecvInner:tag[worldBatchSendRecv_group_name_0], itemNum[1], localRank[12], streamId[44], deviceLogicId[0]
+[INFO]HCCL(10262,python):2025-03-14-15:35:49.625.442 [op_base.cc:560][10262]Entry-[HcclBatchSendRecvInner]SendRecvItem : SendRecvType[0], remoteRank[4], count[3], dataType[5], buf[0x12c1c0958400].
+[INFO]HCCL(10262,python):2025-03-14-15:35:50.625.442 [op_base.cc:560][10262]Entry-HcclBatchSendRecvInner:tag[worldBatchSendRecv_group_name_0], itemNum[1], localRank[12], streamId[44], deviceLogicId[0]
+[INFO]HCCL(10262,python):2025-03-14-15:35:50.625.442 [op_base.cc:560][10262]Entry-[HcclBatchSendRecvInner]SendRecvItem : SendRecvType[1], remoteRank[4], count[3], dataType[5], buf[0x12c1c0958400].

@@ -23,6 +23,7 @@ from typing import List
 
 from ..collectors.rank_timeout_collector import ExecTimeoutExtractor
 from ...base import DecisionRule
+from ....fault_constants import FAULT_NOTIFY_WAIT_TIMEOUT
 from ....models import FaultContext
 
 class ExecNotAllTimeoutRule(DecisionRule):
@@ -57,7 +58,7 @@ class ExecNotAllTimeoutRule(DecisionRule):
         """
         # 获取当前处理的 notify_wait_timeout 故障组
         current_group = context.fault_groups.get(key)
-        if not current_group or current_group.category.level3 != "notify_wait_timeout":
+        if not current_group or current_group.category.level3 != FAULT_NOTIFY_WAIT_TIMEOUT:
             return False
 
         if not current_group.logs:
