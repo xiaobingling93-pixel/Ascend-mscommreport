@@ -19,13 +19,17 @@
 
 为参数面建链超时故障的规则提供公共的初始化逻辑。
 """
-from typing import Generator, List, Tuple, Optional, Set
+import unicodedata
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
 from ..base import DecisionRule
 from ...fault_constants import FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT
-from ...models import FaultContext, FaultGroup, FaultInstance
-from .collectors.rank_pair_collector import RankPairCollector
-from .collectors.link_info_collector import LinkInfoCollector
+from ...models import FaultContext
+from .collectors.link_info_collector import LinkInfo, LinkInfoCollector
+from .collectors.listen_info_collector import ListenInfoCollector
+from .collectors.connect_info_collector import ConnectInfoCollector
+from .collectors.timeout_collector import TimeoutCollector
 from .collectors.entry_collector import EntryCollector
 from .collectors.algorithm_collector import AlgorithmCollector
 
@@ -37,6 +41,21 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
     为参数面建链超时故障的规则提供公共的初始化逻辑。
     """
 
+    # link_info 缓存：key 为 fault group key，value 为时间戳最早的 LinkInfo
+    _link_info_cache: Dict[str, Optional[LinkInfo]] = {}
+
+    # listen_info 缓存：key 为 fault group key，value 为 (timestamp, raw_line) 列表
+    _listen_info_cache: Dict[str, List[Tuple[str, str]]] = {}
+
+    # connect_info 缓存：key 为 fault group key，value 为 (timestamp, raw_line) 列表
+    _connect_info_cache: Dict[str, List[Tuple[str, str]]] = {}
+
+    # 进程退出信息缓存：key 为 fault group key，value 为 {'server': (timestamp, raw_line)或None, 'client': ...}
+    _process_exit_ts_cache: Dict[str, Dict[str, Optional[Tuple[str, str]]]] = {}
+
+    # 超时信息缓存：key 为 fault group key，value 为 (timeout, raw_line) 或 None
+    _timeout_info_cache: Dict[str, Optional[Tuple[int, str]]] = {}
+
     def __init__(self, priority: int):
         """
         初始化参数面建链规则
@@ -46,254 +65,554 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
         """
         super().__init__(priority)
 
-    def extract_param_plane_fault_info(
-        self,
-        context: FaultContext,
-        key: str
-    ) -> Optional[Tuple[FaultGroup, str, List[FaultInstance], List[Tuple[int, int]]]]:
+    @staticmethod
+    def prepare_link_info(context: FaultContext, key: str) -> None:
         """
-        提取参数面建链超时故障的公共信息
-
-        该方法封装了所有参数面建链故障规则 match 方法开头的公共逻辑：
-        1. 获取当前故障组并验证 level3
-        2. 从故障组中提取 identifier
-        3. 筛选所有 param_plane_link_establish_timeout 类型的故障
-        4. 收集所有故障的 rank_pairs
+        提取故障组的 LINK_ERROR_INFO 并缓存时间戳最早的一条。
 
         Args:
             context: 故障分析上下文
             key: 当前处理的故障组 key
-
-        Returns:
-            (fault_group, identifier, matching_faults, rank_pairs) 如果提取成功
-            None 如果验证失败或没有相关数据
-        """
-        # 获取当前处理的故障组
-        current_group = context.fault_groups.get(key)
-        if not current_group or current_group.category.level3 != FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT:
-            return None
-
-        # 从故障组中提取 identifier
-        identifier = None
-        for comm_domain_item in current_group.comm_infos.values():
-            if comm_domain_item.comm_info and comm_domain_item.comm_info.identifier:
-                identifier = comm_domain_item.comm_info.identifier
-                break
-
-        # 从所有故障实例中找到属于该分组的故障
-        # 需要确保故障的通信域与当前故障组的通信域一致
-        matching_faults = [
-            fault for fault in context.faults
-            if fault.category.level3 == FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT
-            and (not identifier or (fault.comm_info and fault.comm_info.identifier == identifier))
-        ]
-
-        if not matching_faults:
-            return None
-
-        # 收集所有故障的 rank_pairs
-        all_rank_pairs = []
-
-        for fault in matching_faults:
-            # 获取故障所在的日志文件路径
-            source_file = getattr(fault.log_entry, 'source_file', '')
-            if source_file:
-                # 从该日志文件中提取 rank_pairs
-                rank_pairs = RankPairCollector.extract_from_file(source_file)
-                if rank_pairs:
-                    all_rank_pairs.extend(rank_pairs)
-
-        if not all_rank_pairs:
-            return None
-
-        return (current_group, identifier, matching_faults, all_rank_pairs)
-
-    def trace_dest_rank_chain(
-        self,
-        context: FaultContext,
-        identifier: str,
-        initial_dest_rank: int,
-        visited: Set[int]
-    ) -> Optional[Tuple[int, int, str, FaultInstance]]:
-        """
-        递归追踪 destRank 链路
-
-        递归逻辑：
-        1. 根据通信域 id 和 destRank 获取进程号的 key
-        2. 判断该进程号 key 是否有参数面建链超时故障
-        3. 如果有，则：
-           - 获取该故障的通信域信息和 rank_pairs
-           - 更新 srcRank 和 destRank
-        4. 递归判断新的 destRank
-        5. 直到 destRank 没有参数面建链超时故障或节点已访问
-
-        Args:
-            context: 故障分析上下文
-            identifier: 通信域标识符
-            initial_dest_rank: 初始的 destRank
-            visited: 已访问的节点集合（用于避免循环）
-
-        Returns:
-            (final_src_rank, final_dest_rank, final_identifier, final_fault_instance)
-            如果追踪到最终的 destRank 则返回，否则返回 None
-        """
-        current_dest_rank = initial_dest_rank
-        current_identifier = identifier
-        current_src_rank = None
-        current_fault_instance = None
-
-        while True:
-            # 检查是否已经访问过该节点（避免循环）
-            if current_dest_rank in visited:
-                break
-
-            # 标记为已访问
-            visited.add(current_dest_rank)
-
-            # 根据通信域 id 和 destRank 获取进程号 key
-            process_key = context.get_process_id(current_identifier, current_dest_rank)
-            if not process_key:
-                break
-
-            # 判断该进程号 key 是否有参数面建链超时故障
-            param_plane_result = self._get_param_plane_fault_rank_pairs(context, process_key)
-            if not param_plane_result:
-                # 该进程没有参数面建链超时故障，跳出循环
-                break
-
-            new_identifier, rank_pairs, fault_instance = param_plane_result
-
-            # 检查是否有 rank_pairs
-            if not rank_pairs:
-                break
-
-            # 取第一个 rank_pair
-            src_rank, dest_rank = rank_pairs[0]
-
-            # 更新当前状态
-            current_src_rank = src_rank
-            current_dest_rank = dest_rank
-            current_identifier = new_identifier
-            current_fault_instance = fault_instance
-
-        # 如果找到了递归链，返回最终结果
-        if current_fault_instance is not None:
-            return (current_src_rank, current_dest_rank, current_identifier, current_fault_instance)
-
-        return None
-
-    def _get_fault_by_process_key(
-        self,
-        context: FaultContext,
-        process_key: str
-    ) -> Optional[FaultInstance]:
-        """
-        根据进程号 key 获取对应的参数面建链超时故障实例
-
-        Args:
-            context: 故障分析上下文
-            process_key: 进程号 key（格式可能是 worker_id|process_id 或 process_id）
-
-        Returns:
-            参数面建链超时故障实例，如果未找到则返回 None
-        """
-        for fault in context.faults:
-            if fault.category.level3 != FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT:
-                continue
-
-            # 获取故障对应的进程号 key
-            if fault.comm_info and fault.comm_info.identifier:
-                # 根据通信域信息获取 rank_id
-                rank_id = fault.comm_info.rank_id
-                fault_process_key = context.get_process_id(fault.comm_info.identifier, rank_id)
-
-                if fault_process_key == process_key:
-                    return fault
-
-        return None
-
-    def _get_param_plane_fault_rank_pairs(
-        self,
-        context: FaultContext,
-        process_key: str
-    ) -> Optional[Tuple[str, List[Tuple[int, int]], FaultInstance]]:
-        """
-        获取指定进程号 key 的参数面建链超时故障的 rank_pairs
-
-        Args:
-            context: 故障分析上下文
-            process_key: 进程号 key（格式可能是 worker_id|process_id 或 process_id）
-
-        Returns:
-            (identifier, rank_pairs, fault_instance) 如果找到，否则返回 None
-        """
-        fault_instance = self._get_fault_by_process_key(context, process_key)
-        if not fault_instance:
-            return None
-
-        # 从故障实例中提取 identifier
-        if not fault_instance.comm_info or not fault_instance.comm_info.identifier:
-            return None
-
-        identifier = fault_instance.comm_info.identifier
-
-        # 从该故障实例的日志文件中提取 rank_pairs
-        source_file = getattr(fault_instance.log_entry, 'source_file', '')
-        if not source_file:
-            return None
-
-        rank_pairs = RankPairCollector.extract_from_file(source_file)
-
-        if not rank_pairs:
-            return None
-
-        return (identifier, rank_pairs, fault_instance)
-
-    def iterate_link_info(
-        self,
-        context: FaultContext,
-        key: str,
-        role: str = 'client'
-    ) -> Generator[Tuple[str, object], None, None]:
-        """
-        遍历故障组的通信域信息，提取指定 MyRole 的 LINK_ERROR_INFO。
-
-        封装了多个规则 match 方法开头的公共逻辑：
-        1. 获取当前故障组并验证 level3
-        2. 遍历 comm_infos 获取 identifier 和 rank_id
-        3. 通过 get_debug_plog_path 获取 debug plog 文件
-        4. 通过 LinkInfoCollector 提取 LINK_ERROR_INFO
-        5. 按 MyRole 过滤
-
-        Args:
-            context: 故障分析上下文
-            key: 当前处理的故障组 key
-            role: 过滤的 MyRole，默认为 'client'
-
-        Yields:
-            (identifier, link_info) 元组
         """
         current_group = context.fault_groups.get(key)
         if not current_group or current_group.category.level3 != FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT:
             return
 
+        earliest: Optional[LinkInfo] = None
         for comm_domain_item in current_group.comm_infos.values():
             comm_info = comm_domain_item.comm_info
             if not comm_info or not comm_info.identifier:
                 continue
 
-            identifier = comm_info.identifier
-            rank_id = comm_info.rank_id
-
-            debug_plog_paths = context.get_debug_plog_path(identifier, rank_id)
+            debug_plog_paths = context.get_debug_plog_path(comm_info.identifier, comm_info.rank_id)
             if not debug_plog_paths:
                 continue
 
             link_info = LinkInfoCollector.extract_from_paths(debug_plog_paths)
-            if not link_info or link_info.my_role != role:
+            if not link_info:
                 continue
 
-            yield identifier, link_info
+            if earliest is None or (link_info.timestamp and link_info.timestamp < earliest.timestamp):
+                earliest = link_info
+
+        ParamPlaneLinkEstablishRule._link_info_cache[key] = earliest
+
+    @staticmethod
+    def get_link_info(key: str) -> Optional[LinkInfo]:
+        """
+        获取缓存中时间戳最早的 LinkInfo。
+
+        Args:
+            key: 当前处理的 fault group key
+
+        Returns:
+            LinkInfo 如果存在，否则返回 None
+        """
+        return ParamPlaneLinkEstablishRule._link_info_cache.get(key)
+
+    def build_analysis_step(self, key: str) -> List[str]:
+        """
+        生成分析步骤：首报错失败的 rank 对、server 监听信息。
+
+        Args:
+            key: 当前处理的 fault group key
+
+        Returns:
+            分析步骤文本列表，如果无 link_info 则返回空列表
+        """
+        link_info = ParamPlaneLinkEstablishRule._link_info_cache.get(key)
+        if not link_info:
+            return []
+
+        lines = ["首报错失败的rank对如下："]
+        if link_info.raw_line:
+            lines.append(link_info.raw_line)
+
+        listen_info_list = ParamPlaneLinkEstablishRule._listen_info_cache.get(key) or []
+        lines.append("")
+        lines.append("server节点发起监听的时间点：")
+        for _, raw_line in listen_info_list:
+            lines.append(raw_line)
+
+        connect_info_list = ParamPlaneLinkEstablishRule._connect_info_cache.get(key) or []
+        lines.append("")
+        lines.append("client发起socket请求的时间点：")
+        for _, raw_line in connect_info_list:
+            lines.append(raw_line)
+
+        process_exit_ts = ParamPlaneLinkEstablishRule._process_exit_ts_cache.get(key)
+        if process_exit_ts:
+            server_exit = process_exit_ts.get('server')
+            lines.append("")
+            lines.append("server进程退出的时间点：")
+            if server_exit:
+                lines.append(server_exit[1])
+
+            client_exit = process_exit_ts.get('client')
+            lines.append("")
+            lines.append("client进程退出的时间点：")
+            if client_exit:
+                lines.append(client_exit[1])
+
+        timeout_info = ParamPlaneLinkEstablishRule._timeout_info_cache.get(key)
+        lines.append("")
+        lines.append("设定的超时时间：")
+        if timeout_info:
+            lines.append(timeout_info[1])
+
+        # 追加时间线表格
+        timeline = self._build_timeline_table(key)
+        if timeline:
+            lines.append("")
+            lines.extend(timeline)
+
+        return lines
+
+    @staticmethod
+    def _display_width(text: str) -> int:
+        """
+        计算字符串在终端中的显示宽度（中文字符占2列，ASCII占1列）。
+
+        Args:
+            text: 输入字符串
+
+        Returns:
+            显示宽度
+        """
+        width = 0
+        for ch in text:
+            if unicodedata.east_asian_width(ch) in ('W', 'F'):
+                width += 2
+            else:
+                width += 1
+        return width
+
+    @staticmethod
+    def _pad(text: str, width: int, align: str = 'left') -> str:
+        """
+        按显示宽度对字符串进行填充对齐。
+
+        Args:
+            text: 输入字符串
+            width: 目标显示宽度
+            align: 'left', 'right', 'center'
+
+        Returns:
+            填充后的字符串
+        """
+        dw = ParamPlaneLinkEstablishRule._display_width(text)
+        padding = max(0, width - dw)
+        if align == 'right':
+            return ' ' * padding + text
+        elif align == 'center':
+            left_pad = padding // 2
+            right_pad = padding - left_pad
+            return ' ' * left_pad + text + ' ' * right_pad
+        else:
+            return text + ' ' * padding
+
+    @staticmethod
+    def _shorten_timestamp(ts: str) -> str:
+        """
+        简化时间戳显示，去掉年份和毫秒以下精度。
+
+        2025-03-14-15:43:53.370.052 -> 03-14-15:43:53
+        """
+        # 时间戳格式: YYYY-MM-DD-HH:MM:SS.mmm.nnn
+        # 先按第一个 '-' 分割出年份，再处理剩余部分
+        first_dash = ts.find('-')
+        if first_dash < 0:
+            return ts
+        rest = ts[first_dash + 1:]  # MM-DD-HH:MM:SS.mmm.nnn
+        dot_pos = rest.find('.')
+        if dot_pos >= 0:
+            rest = rest[:dot_pos]  # MM-DD-HH:MM:SS
+        return rest
+
+    def _build_timeline_table(self, key: str) -> List[str]:
+        """
+        生成双列时间线表格，将 client 和 server 两端事件按时间排序展示。
+
+        Args:
+            key: 当前处理的 fault group key
+
+        Returns:
+            表格文本列表，如果无事件则返回空列表
+        """
+        link_info = ParamPlaneLinkEstablishRule._link_info_cache.get(key)
+        if not link_info:
+            return []
+
+        # 收集所有事件: (timestamp_str, side, label)
+        events: List[Tuple[str, str, str]] = []
+
+        # LINK_ERROR_INFO
+        if link_info.timestamp:
+            events.append((link_info.timestamp, link_info.my_role, '建链对报错信息'))
+
+        # Server listen
+        for ts, _ in (ParamPlaneLinkEstablishRule._listen_info_cache.get(key) or []):
+            events.append((ts, 'server', '发起端口监听'))
+
+        # Client connect
+        connect_info_list = ParamPlaneLinkEstablishRule._connect_info_cache.get(key) or []
+        for ts, _ in connect_info_list:
+            events.append((ts, 'client', '发起请求'))
+
+        # Client 请求结束（发起请求时间 + 超时时间）
+        timeout_info = ParamPlaneLinkEstablishRule._timeout_info_cache.get(key)
+        if connect_info_list and timeout_info:
+            timeout_seconds = timeout_info[0]
+            for ts, _ in connect_info_list:
+                try:
+                    dot_pos = ts.index('.', ts.index(':'))
+                    base_str = ts[:dot_pos]
+                    frac_str = ts[dot_pos:]
+                    start_dt = datetime.strptime(base_str, "%Y-%m-%d-%H:%M:%S")
+                    end_dt = start_dt + timedelta(seconds=timeout_seconds)
+                    end_ts_str = end_dt.strftime("%Y-%m-%d-%H:%M:%S") + frac_str
+                    events.append((end_ts_str, 'client', '发起请求结束'))
+                except (ValueError, IndexError):
+                    continue
+
+        # 进程最后日志
+        process_exit_ts = ParamPlaneLinkEstablishRule._process_exit_ts_cache.get(key)
+        if process_exit_ts:
+            for role in ('server', 'client'):
+                info = process_exit_ts.get(role)
+                if info:
+                    events.append((info[0], role, '进程退出'))
+
+        # Timeout - 建链窗口开始和结束
+        timeout_info = ParamPlaneLinkEstablishRule._timeout_info_cache.get(key)
+        if timeout_info:
+            timeout_seconds, raw_line = timeout_info
+            ts_match = ConnectInfoCollector.TIMESTAMP_PATTERN.search(raw_line)
+            if ts_match:
+                ts_str = ts_match.group(1)
+                # 解析时间戳，分离整数秒和小数部分
+                # 格式: YYYY-MM-DD-HH:MM:SS.mmm.nnn
+                dot_pos = ts_str.index('.', ts_str.index(':'))
+                base_str = ts_str[:dot_pos]
+                frac_str = ts_str[dot_pos:]
+
+                end_dt = datetime.strptime(base_str, "%Y-%m-%d-%H:%M:%S")
+                start_dt = end_dt - timedelta(seconds=timeout_seconds)
+
+                start_ts_str = start_dt.strftime("%Y-%m-%d-%H:%M:%S") + frac_str
+                end_ts_str = ts_str
+
+                events.append((start_ts_str, link_info.my_role, '建链窗口开始'))
+                events.append((end_ts_str, link_info.my_role, '建链窗口结束'))
+
+        if not events:
+            return []
+
+        # 按时间排序
+        events.sort(key=lambda e: e[0])
+
+        # 格式化表格
+        # time_w: 时间列内容宽度（header/separator/数据行一致，保证 | 对齐）
+        # col_w: 数据列内容宽度
+        time_w = 18
+        col_w = 60
+        shorten = ParamPlaneLinkEstablishRule._shorten_timestamp
+        pad = ParamPlaneLinkEstablishRule._pad
+
+        header = f"{pad('Time', time_w)} | {pad('Client', col_w, 'center')} | {pad('Server', col_w, 'center')}"
+        sep = f"{'-' * time_w}-+-{'-' * col_w}-+-{'-' * col_w}"
+
+        lines = [header, sep]
+        for ts, side, label in events:
+            short_ts = shorten(ts)
+            # 数据行多一个前导空格，内容宽度减 1
+            ts_col = f" {pad(short_ts, time_w - 1)}"
+
+            if side == 'client':
+                lines.append(f"{ts_col} | {pad(label, col_w)} |")
+            else:
+                lines.append(f"{ts_col} | {pad('', col_w)} | {label}")
+
+        return lines
+
+    @staticmethod
+    def get_identifier(context: FaultContext, key: str) -> Optional[str]:
+        """
+        从故障组中获取通信域标识符。
+
+        Args:
+            context: 故障分析上下文
+            key: 当前处理的故障组 key
+
+        Returns:
+            通信域标识符，如果未找到则返回 None
+        """
+        current_group = context.fault_groups.get(key)
+        if not current_group:
+            return None
+        for comm_domain_item in current_group.comm_infos.values():
+            if comm_domain_item.comm_info and comm_domain_item.comm_info.identifier:
+                return comm_domain_item.comm_info.identifier
+        return None
+
+    @staticmethod
+    def clear_link_info_cache(key: str = None) -> None:
+        """
+        清除所有缓存。
+
+        Args:
+            key: 指定清除某个 fault group 的缓存，为 None 时清除全部
+        """
+        if key is not None:
+            ParamPlaneLinkEstablishRule._link_info_cache.pop(key, None)
+            ParamPlaneLinkEstablishRule._listen_info_cache.pop(key, None)
+            ParamPlaneLinkEstablishRule._connect_info_cache.pop(key, None)
+            ParamPlaneLinkEstablishRule._process_exit_ts_cache.pop(key, None)
+            ParamPlaneLinkEstablishRule._timeout_info_cache.pop(key, None)
+        else:
+            ParamPlaneLinkEstablishRule._link_info_cache.clear()
+            ParamPlaneLinkEstablishRule._listen_info_cache.clear()
+            ParamPlaneLinkEstablishRule._connect_info_cache.clear()
+            ParamPlaneLinkEstablishRule._process_exit_ts_cache.clear()
+            ParamPlaneLinkEstablishRule._timeout_info_cache.clear()
+
+    @staticmethod
+    def prepare_listen_info(context: FaultContext, key: str) -> None:
+        """
+        提取 server 节点发起监听的时间戳和原始日志行并缓存。
+
+        Args:
+            context: 故障分析上下文
+            key: 当前处理的故障组 key
+        """
+        link_info = ParamPlaneLinkEstablishRule._link_info_cache.get(key)
+        if not link_info:
+            ParamPlaneLinkEstablishRule._listen_info_cache[key] = None
+            return
+
+        identifier = ParamPlaneLinkEstablishRule.get_identifier(context, key)
+        if not identifier:
+            ParamPlaneLinkEstablishRule._listen_info_cache[key] = None
+            return
+
+        if link_info.my_role == 'client':
+            # client 视角：server 在 dest_rank，监听 IP/端口为 dest_ip/dest_port
+            server_rank = link_info.dest_rank
+            server_ip = link_info.dest_ip
+            server_port = link_info.dest_port
+        else:
+            # server 视角：server 在 src_rank，监听 IP/端口为 src_ip/src_port
+            server_rank = link_info.src_rank
+            server_ip = link_info.src_ip
+            server_port = link_info.src_port
+
+        run_plog_paths = context.get_run_plog_path(identifier, server_rank)
+        if not run_plog_paths:
+            ParamPlaneLinkEstablishRule._listen_info_cache[key] = None
+            return
+
+        listen_info = ListenInfoCollector.extract_listening_info(
+            run_plog_paths, server_ip, server_port
+        )
+        ParamPlaneLinkEstablishRule._listen_info_cache[key] = listen_info
+
+    @staticmethod
+    def get_listen_info(key: str) -> List[Tuple[str, str]]:
+        """
+        获取缓存中 server 节点发起监听的信息。
+
+        Args:
+            key: 当前处理的 fault group key
+
+        Returns:
+            (timestamp, raw_line) 列表
+        """
+        return ParamPlaneLinkEstablishRule._listen_info_cache.get(key, [])
+
+    @staticmethod
+    def prepare_connect_info(context: FaultContext, key: str) -> None:
+        """
+        提取 client 节点发起 socket connect 的时间戳和原始日志行并缓存。
+
+        Args:
+            context: 故障分析上下文
+            key: 当前处理的故障组 key
+        """
+        link_info = ParamPlaneLinkEstablishRule._link_info_cache.get(key)
+        if not link_info:
+            ParamPlaneLinkEstablishRule._connect_info_cache[key] = None
+            return
+
+        identifier = ParamPlaneLinkEstablishRule.get_identifier(context, key)
+        if not identifier:
+            ParamPlaneLinkEstablishRule._connect_info_cache[key] = None
+            return
+
+        if link_info.my_role == 'client':
+            # client 视角：client 在 src_rank，local_ip=src_ip, remote_ip=dest_ip
+            client_rank = link_info.src_rank
+            client_local_ip = link_info.src_ip
+            client_remote_ip = link_info.dest_ip
+        else:
+            # server 视角：client 在 dest_rank，local_ip=dest_ip, remote_ip=src_ip
+            client_rank = link_info.dest_rank
+            client_local_ip = link_info.dest_ip
+            client_remote_ip = link_info.src_ip
+
+        run_plog_paths = context.get_run_plog_path(identifier, client_rank)
+        if not run_plog_paths:
+            ParamPlaneLinkEstablishRule._connect_info_cache[key] = None
+            return
+
+        connect_info = ConnectInfoCollector.extract_connect_info(
+            run_plog_paths, client_local_ip, client_remote_ip, identifier
+        )
+        ParamPlaneLinkEstablishRule._connect_info_cache[key] = connect_info
+
+    @staticmethod
+    def get_connect_info(key: str) -> List[Tuple[str, str]]:
+        """
+        获取缓存中 client 节点发起 connect 的信息。
+
+        Args:
+            key: 当前处理的 fault group key
+
+        Returns:
+            (timestamp, raw_line) 列表
+        """
+        return ParamPlaneLinkEstablishRule._connect_info_cache.get(key, [])
+
+    @staticmethod
+    def prepare_process_exit_ts(context: FaultContext, key: str) -> None:
+        """
+        提取 server 和 client 进程最后一条日志的时间戳和原始日志行并缓存。
+
+        Args:
+            context: 故障分析上下文
+            key: 当前处理的故障组 key
+        """
+        link_info = ParamPlaneLinkEstablishRule._link_info_cache.get(key)
+        if not link_info:
+            return
+
+        identifier = ParamPlaneLinkEstablishRule.get_identifier(context, key)
+        if not identifier:
+            return
+
+        if link_info.my_role == 'client':
+            server_rank = link_info.dest_rank
+            client_rank = link_info.src_rank
+        else:
+            server_rank = link_info.src_rank
+            client_rank = link_info.dest_rank
+
+        server_plog_paths = context.get_run_plog_path(identifier, server_rank)
+        client_plog_paths = context.get_run_plog_path(identifier, client_rank)
+
+        server_info = ConnectInfoCollector.extract_last_log_info(server_plog_paths) if server_plog_paths else None
+        client_info = ConnectInfoCollector.extract_last_log_info(client_plog_paths) if client_plog_paths else None
+
+        ParamPlaneLinkEstablishRule._process_exit_ts_cache[key] = {
+            'server': server_info,
+            'client': client_info,
+        }
+
+    @staticmethod
+    def get_process_exit_ts(key: str, role: str) -> Optional[Tuple[str, str]]:
+        """
+        获取缓存中指定角色的进程最后日志信息。
+
+        Args:
+            key: 当前处理的 fault group key
+            role: 'server' 或 'client'
+
+        Returns:
+            (timestamp, raw_line) 如果存在，否则返回 None
+        """
+        ts_dict = ParamPlaneLinkEstablishRule._process_exit_ts_cache.get(key)
+        if not ts_dict:
+            return None
+        return ts_dict.get(role)
+
+    @staticmethod
+    def prepare_timeout_info(context: FaultContext, key: str) -> None:
+        """
+        提取 src_rank 的超时时间及原始日志行并缓存。
+
+        Args:
+            context: 故障分析上下文
+            key: 当前处理的故障组 key
+        """
+        link_info = ParamPlaneLinkEstablishRule._link_info_cache.get(key)
+        if not link_info:
+            return
+
+        identifier = ParamPlaneLinkEstablishRule.get_identifier(context, key)
+        if not identifier:
+            return
+
+        src_debug_paths = context.get_debug_plog_path(identifier, link_info.src_rank)
+        if not src_debug_paths:
+            ParamPlaneLinkEstablishRule._timeout_info_cache[key] = None
+            return
+
+        timeout_info = TimeoutCollector.extract_timeout_log_info(src_debug_paths[0])
+        ParamPlaneLinkEstablishRule._timeout_info_cache[key] = timeout_info
+
+    @staticmethod
+    def get_timeout_info(key: str) -> Optional[Tuple[int, str]]:
+        """
+        获取缓存中 src_rank 的超时信息。
+
+        Args:
+            key: 当前处理的 fault group key
+
+        Returns:
+            (timeout, raw_line) 如果存在，否则返回 None
+        """
+        return ParamPlaneLinkEstablishRule._timeout_info_cache.get(key)
+
+    @staticmethod
+    def check_time_window_overlap(key: str) -> Optional[bool]:
+        """
+        检查 client connect 时间窗口与 server accept 时间窗口是否有交集。
+
+        client connect 窗口: [connect_ts, connect_ts + timeout]
+        server accept 窗口: [listen_ts, listen_ts + timeout]
+
+        Args:
+            key: 当前处理的 fault group key
+
+        Returns:
+            True 有交集, False 无交集, None 信息不足无法判断
+        """
+
+        timeout_info = ParamPlaneLinkEstablishRule.get_timeout_info(key)
+        if not timeout_info:
+            return None
+        timeout_seconds = timeout_info[0]
+
+        # client connect 时间窗口
+        connect_info = ParamPlaneLinkEstablishRule.get_connect_info(key)
+        if not connect_info:
+            return None
+        client_connect_ts = connect_info[0][0]
+        connect_dot = client_connect_ts.index('.', client_connect_ts.index(':'))
+        connect_base = client_connect_ts[:connect_dot]
+        connect_dt = datetime.strptime(connect_base, "%Y-%m-%d-%H:%M:%S")
+        connect_end_dt = connect_dt + timedelta(seconds=timeout_seconds)
+
+        # server accept 时间窗口
+        listen_info = ParamPlaneLinkEstablishRule.get_listen_info(key)
+        if not listen_info:
+            return None
+        listen_ts = listen_info[0][0]
+        listen_dot = listen_ts.index('.', listen_ts.index(':'))
+        listen_base = listen_ts[:listen_dot]
+        listen_dt = datetime.strptime(listen_base, "%Y-%m-%d-%H:%M:%S")
+        listen_end_dt = listen_dt + timedelta(seconds=timeout_seconds)
+
+        return not (connect_end_dt < listen_dt or connect_dt > listen_end_dt)
 
     def build_process_id_lines(
         self,
