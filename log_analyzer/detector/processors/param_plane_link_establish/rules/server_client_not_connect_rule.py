@@ -23,7 +23,6 @@ from typing import List
 
 from ..rule_base import ParamPlaneLinkEstablishRule
 from ....models import FaultContext
-from ..collectors.connect_info_collector import ConnectInfoCollector
 
 
 class ServerClientNotConnectRule(ParamPlaneLinkEstablishRule):
@@ -31,12 +30,10 @@ class ServerClientNotConnectRule(ParamPlaneLinkEstablishRule):
     Server端报错Client端未发起connect规则
 
     判断逻辑：
-    1. 从故障组的 comm_infos 中获取 identifier 和 rank_id
-    2. 通过 get_debug_plog_path 获取 debug plog，LinkInfoCollector 提取 LINK_ERROR_INFO
-    3. 检查 MyRole 是否为 server
-    4. 通过 get_run_plog_path(identifier, dest_rank) 获取 client 端的 run plog 文件
-    5. 在 client 端的 run plog 中搜索 ra_socket_batch_connect 日志行
-    6. 如果没找到匹配的 connect 行，则匹配此规则
+    1. 通过 get_link_info 获取 server 端的 LINK_ERROR_INFO
+    2. 检查 MyRole 是否为 server
+    3. 通过 get_connect_info 获取缓存的 client connect 信息
+    4. 如果缓存中没有 connect 信息，则匹配此规则
     """
 
     def __init__(self, priority: int = 12):
@@ -53,30 +50,24 @@ class ServerClientNotConnectRule(ParamPlaneLinkEstablishRule):
         Returns:
             是否匹配该规则
         """
-        for identifier, link_info in self.iterate_link_info(context, key, role='server'):
-            # dest_rank 是 client（从 server 视角看，dest 是 client）
-            client_rank = link_info.dest_rank
+        link_info = self.get_link_info(key)
+        if not link_info or link_info.my_role != 'server':
+            return False
 
-            # 获取 client 端的 run plog
-            client_run_plog_paths = context.get_run_plog_path(identifier, client_rank)
-            if not client_run_plog_paths:
-                # client 端日志文件不存在，无法判断是否发起 connect
-                continue
+        identifier = self.get_identifier(context, key)
+        if not identifier:
+            return False
 
-            # 在 client 端的 run plog 中搜索 connect 行
-            # client 的 local_ip 是 dest_ip，remote_ip 是 src_ip
-            has_connect = ConnectInfoCollector.has_connect(
-                client_run_plog_paths, link_info.dest_ip, link_info.src_ip, identifier
-            )
-
-            if not has_connect:
-                # client 端没有发起 connect，匹配上
-                context.set('server_client_not_connect_identifier', identifier)
-                context.set('server_client_not_connect_src_rank', link_info.src_rank)
-                context.set('server_client_not_connect_dest_rank', link_info.dest_rank)
-                context.set('server_client_not_connect_src_ip', link_info.src_ip)
-                context.set('server_client_not_connect_dest_ip', link_info.dest_ip)
-                return True
+        # 从缓存获取 client connect 信息，空列表表示未发起 connect
+        connect_info = self.get_connect_info(key)
+        if not connect_info:
+            context.set('server_client_not_connect_identifier', identifier)
+            context.set('server_client_not_connect_src_rank', link_info.src_rank)
+            context.set('server_client_not_connect_dest_rank', link_info.dest_rank)
+            context.set('server_client_not_connect_src_ip', link_info.src_ip)
+            context.set('server_client_not_connect_dest_ip', link_info.dest_ip)
+            context.set('server_client_not_connect_key', key)
+            return True
 
         return False
 
@@ -105,4 +96,13 @@ class ServerClientNotConnectRule(ParamPlaneLinkEstablishRule):
             f"需要排查client端算子是否下发，可以设置export HCCL_ENTRY_LOG_ENABLE=1记录通信算子下发，"
             f"当前通信算子执行次数统计如下: "
         )
-        return self.build_entry_algorithm_solution(context, identifier, src_rank, dest_rank, prefix_text)
+        solution = self.build_entry_algorithm_solution(context, identifier, src_rank, dest_rank, prefix_text)
+
+        key = context.get('server_client_not_connect_key')
+        analysis = self.build_analysis_step(key) if key else []
+        if analysis:
+            solution.append("")
+            solution.append("分析过程:")
+            solution.extend(analysis)
+
+        return solution

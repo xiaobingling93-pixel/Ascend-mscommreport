@@ -17,27 +17,23 @@
 """
 Server端报错时间早于Client端发起connect时间规则
 
-判断建链超时是否由server端报错时间早于client端发起connect时间引起（从server端视角）。
+判断建链超时是否由client端发起connect的时间不在server端accept时间范围内引起（从server端视角）。
 """
 from typing import List
 
 from ..rule_base import ParamPlaneLinkEstablishRule
 from ....models import FaultContext
-from ..collectors.connect_info_collector import ConnectInfoCollector
 
 
 class ServerConnectAfterErrorRule(ParamPlaneLinkEstablishRule):
     """
-    Server端报错时间早于Client端发起connect时间规则
+    Client端connect时间不在server端accept时间范围内规则
 
     判断逻辑：
-    1. 从故障组的 comm_infos 中获取 identifier 和 rank_id
-    2. 通过 get_debug_plog_path 获取 debug plog，LinkInfoCollector 提取 LINK_ERROR_INFO
-    3. 检查 MyRole 是否为 server
-    4. 从 server 端报错日志中提取时间戳作为 server 端报错时间点
-    5. 检查 dest_rank 是否实际上是 server 端（有 listen 记录），如果是则跳过
-    6. 获取 client 端的 connect 时间戳
-    7. 如果 server 报错时间 < client connect 时间，则匹配
+    1. 通过 get_link_info 获取 server 端的 LINK_ERROR_INFO
+    2. 通过 get_timeout_info 获取建链窗口（开始 = 结束 - timeout）
+    3. 通过 get_connect_info 获取 client 端的 connect 时间戳
+    4. 如果 client connect 时间不在建链窗口范围内，则匹配
     """
 
     def __init__(self, priority: int = 13):
@@ -45,7 +41,7 @@ class ServerConnectAfterErrorRule(ParamPlaneLinkEstablishRule):
 
     def match(self, context: FaultContext, key: str) -> bool:
         """
-        判断是否是server报错时间早于client发起connect时间导致的建链超时
+        判断是否是client发起connect的时间不在server端accept时间范围内导致的建链超时
 
         Args:
             context: 故障分析上下文
@@ -54,72 +50,28 @@ class ServerConnectAfterErrorRule(ParamPlaneLinkEstablishRule):
         Returns:
             是否匹配该规则
         """
-        for identifier, link_info in self.iterate_link_info(context, key, role='server'):
-            # 从 server 端 debug plog 的 LINK_ERROR_INFO 行提取时间戳
-            debug_plog_paths = context.get_debug_plog_path(identifier, link_info.src_rank)
-            server_error_ts = self._extract_error_timestamp(debug_plog_paths) if debug_plog_paths else None
-            if not server_error_ts:
-                continue
+        link_info = self.get_link_info(key)
+        if not link_info or link_info.my_role != 'server':
+            return False
 
-            # dest_rank 是 client（从 server 视角看，dest 是 client）
-            client_rank = link_info.dest_rank
+        identifier = self.get_identifier(context, key)
+        if not identifier:
+            return False
 
-            # 获取 client 端的 run plog
-            client_run_plog_paths = context.get_run_plog_path(identifier, client_rank)
-            if not client_run_plog_paths:
-                continue
-
-            # 获取 client 端 connect 时间戳
-            client_connect_ts = ConnectInfoCollector.get_connect_timestamp(
-                client_run_plog_paths, link_info.dest_ip, link_info.src_ip, identifier
-            )
-            if not client_connect_ts:
-                continue
-
-            # 如果 server 报错时间 < client connect 时间，则匹配
-            if server_error_ts < client_connect_ts:
-                context.set('server_connect_after_error_identifier', identifier)
-                context.set('server_connect_after_error_src_rank', link_info.src_rank)
-                context.set('server_connect_after_error_dest_rank', link_info.dest_rank)
-                return True
+        # 检查 client connect 时间窗口与 server accept 时间窗口是否有交集
+        overlap = self.check_time_window_overlap(key)
+        if overlap is False:
+            context.set('server_connect_after_error_identifier', identifier)
+            context.set('server_connect_after_error_src_rank', link_info.src_rank)
+            context.set('server_connect_after_error_dest_rank', link_info.dest_rank)
+            context.set('server_connect_after_error_key', key)
+            return True
 
         return False
 
-    @staticmethod
-    def _find_error_timestamp_in_file(plog_path: str, timestamp_pattern) -> str:
-        """从单个 plog 文件中提取第一个 LINK_ERROR_INFO 错误时间戳"""
-        try:
-            with open(plog_path, 'r', encoding='utf-8', errors='ignore') as f:
-                for line in f:
-                    if 'LINK_ERROR_INFO' not in line or '[ERROR]' not in line:
-                        continue
-                    ts_match = timestamp_pattern.search(line)
-                    if ts_match:
-                        return ts_match.group(1)
-        except Exception:
-            pass
-        return None
-
-    def _extract_error_timestamp(self, debug_plog_paths: List[str]) -> str:
-        """
-        从 server 端 debug plog 的 LINK_ERROR_INFO 相关行提取时间戳
-
-        Args:
-            debug_plog_paths: debug plog 文件路径列表
-
-        Returns:
-            时间戳字符串，如果没找到返回 None
-        """
-        timestamp_pattern = ConnectInfoCollector.TIMESTAMP_PATTERN
-        for plog_path in debug_plog_paths:
-            ts = self._find_error_timestamp_in_file(plog_path, timestamp_pattern)
-            if ts:
-                return ts
-        return None
-
     def generate_solution(self, context: FaultContext) -> List[str]:
         """
-        生成 server 报错时间早于 client connect 时间的解决方案
+        生成 client connect 时间不在 server 端 accept 时间范围内的解决方案
 
         Args:
             context: 故障分析上下文
@@ -132,10 +84,21 @@ class ServerConnectAfterErrorRule(ParamPlaneLinkEstablishRule):
         dest_rank = context.get('server_connect_after_error_dest_rank')
 
         if any(v is None for v in [identifier, src_rank, dest_rank]):
-            return ["参数面建链超时，可能是server报错时间早于client发起connect时间导致"]
+            return ["参数面建链超时，可能是client端发起connect的时间不在server端accept时间范围内导致"]
 
-        return [
+        prefix_text = (
             f"参数面建链阶段通信域{identifier}中rank[{src_rank}]作为server端超时，"
-            f"rank[{dest_rank}]作为client端发起socket请求的时间点在server端报错之后，"
-            f"请联系HCCL专家排查原因"
-        ]
+            f"rank[{dest_rank}]作为client端发起socket请求的时间点不在server端accept时间范围内，"
+            f"需要排查client端算子是否下发，可以设置export HCCL_ENTRY_LOG_ENABLE=1记录通信算子下发，"
+            f"当前通信算子执行次数统计如下: "
+        )
+        solution = self.build_entry_algorithm_solution(context, identifier, src_rank, dest_rank, prefix_text)
+
+        key = context.get('server_connect_after_error_key')
+        analysis = self.build_analysis_step(key) if key else []
+        if analysis:
+            solution.append("")
+            solution.append("分析过程:")
+            solution.extend(analysis)
+
+        return solution

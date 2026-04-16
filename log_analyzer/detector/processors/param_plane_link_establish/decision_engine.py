@@ -23,7 +23,8 @@ from typing import List
 
 from ..base import DecisionRule
 from ...models import FaultContext
-from .rules import TlsConfigInconsistentRule, ServerNotListeningRule, ClientNotConnectRule, ServerProcessExitRule, ServerNoErrorRule, ClientProcessExitRule, ServerClientNotConnectRule, ServerConnectAfterErrorRule, OperatorDispatchTimeoutRule, NetworkConnectivityRule, DefaultProcessIdRule
+from .rules import TlsConfigInconsistentRule, ServerNotListeningRule, ClientNotConnectRule, ServerProcessExitRule, ServerNoErrorRule, ClientProcessExitRule, ServerClientNotConnectRule, ServerConnectAfterErrorRule, NetworkConnectivityRule
+from .rule_base import ParamPlaneLinkEstablishRule
 
 
 class ParamPlaneLinkEstablishDecisionEngine:
@@ -46,9 +47,7 @@ class ParamPlaneLinkEstablishDecisionEngine:
             ServerClientNotConnectRule(priority=12),  # Server端报错Client端未发起connect
             ServerConnectAfterErrorRule(priority=13),  # Server报错时间早于Client发起connect时间
             TlsConfigInconsistentRule(priority=50),  # TLS配置不一致
-            OperatorDispatchTimeoutRule(priority=300),  # 算子下发超时
             NetworkConnectivityRule(priority=1100),  # 网络连通性
-            DefaultProcessIdRule(priority=10000),  # 默认规则（兜底）
         ]
         # 按优先级排序
         self._rules.sort(key=lambda rule: rule.priority)
@@ -66,12 +65,24 @@ class ParamPlaneLinkEstablishDecisionEngine:
             context: 故障分析上下文
             key: 当前处理的故障组 key
         """
+        # 一次性提取所有 LINK_ERROR_INFO 并缓存，供所有规则共享
+        ParamPlaneLinkEstablishRule.prepare_link_info(context, key)
+        # 提取 server 节点监听信息并缓存
+        ParamPlaneLinkEstablishRule.prepare_listen_info(context, key)
+        # 提取 client 节点 connect 信息并缓存
+        ParamPlaneLinkEstablishRule.prepare_connect_info(context, key)
+        # 提取 server 和 client 进程最后时间戳并缓存
+        ParamPlaneLinkEstablishRule.prepare_process_exit_ts(context, key)
+        # 提取 src_rank 和 dest_rank 的超时信息并缓存
+        ParamPlaneLinkEstablishRule.prepare_timeout_info(context, key)
+
         for rule in self._rules:
             # 尝试匹配规则
             if rule.match(context, key):
                 # 规则匹配，生成并应用解决方案
                 rule.apply(context, key)
                 context.extended_info.clear()
+                ParamPlaneLinkEstablishRule.clear_link_info_cache(key)
                 return
             else:
                 # 没匹配上，清空该 rule 在 match 过程中可能设置的缓存

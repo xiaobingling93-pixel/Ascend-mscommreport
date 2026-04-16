@@ -21,7 +21,6 @@
 """
 import re
 from typing import Optional, Tuple
-from datetime import datetime
 
 
 class TimeoutCollector:
@@ -40,67 +39,24 @@ class TimeoutCollector:
     )
 
     @staticmethod
-    def parse_timestamp(timestamp_str: str) -> Optional[datetime]:
+    def extract_timeout_log_info(source_file: str) -> Optional[Tuple[int, str]]:
         """
-        解析时间戳字符串
-
-        Args:
-            timestamp_str: 时间戳字符串，格式：YYYY-MM-DD-HH:MM:SS.mmm
-
-        Returns:
-            datetime 对象，如果解析失败则返回 None
-        """
-        try:
-            # 格式: 2025-03-14-15:43:53.370
-            return datetime.strptime(timestamp_str, '%Y-%m-%d-%H:%M:%S.%f')
-        except Exception:
-            return None
-
-    @staticmethod
-    def extract_timeout_info_from_file(source_file: str) -> Optional[Tuple[datetime, int, int, int]]:
-        """
-        从文件中提取超时信息
+        从文件中提取超时时间及原始日志行
 
         Args:
             source_file: 源文件路径
 
         Returns:
-            (timestamp, role, rank, timeout) 如果找到，否则返回 None
-            - timestamp: 日志时间戳
-            - role: 角色
-            - rank: rank ID
-            - timeout: 超时时间（秒）
+            (timeout, raw_line) 如果找到，否则返回 None
         """
         try:
             with open(source_file, 'r', encoding='utf-8', errors='ignore') as f:
                 for line in f:
                     match = TimeoutCollector.TIMEOUT_PATTERN.search(line)
                     if match:
-                        timestamp_str = match.group(1)
-                        role = int(match.group(2))
-                        rank = int(match.group(3))
                         timeout = int(match.group(4))
-
-                        timestamp = TimeoutCollector.parse_timestamp(timestamp_str)
-                        if timestamp:
-                            return (timestamp, role, rank, timeout)
+                        return (timeout, line.rstrip())
         except Exception:
             pass
 
-        return None
-
-    @staticmethod
-    def extract_timeout_from_file(source_file: str) -> Optional[int]:
-        """
-        从文件中提取超时时间（仅返回 timeout 值）
-
-        Args:
-            source_file: 源文件路径
-
-        Returns:
-            超时时间（秒），如果未找到则返回 None
-        """
-        result = TimeoutCollector.extract_timeout_info_from_file(source_file)
-        if result:
-            return result[3]  # 返回 timeout
         return None

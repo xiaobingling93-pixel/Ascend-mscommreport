@@ -20,7 +20,7 @@ Connect 信息收集器
 从日志文件中检查是否发起了 ra_socket_batch_connect 连接。
 """
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 class ConnectInfoCollector:
@@ -35,35 +35,11 @@ class ConnectInfoCollector:
     TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
 
     @staticmethod
-    def has_connect(plog_paths: List[str], src_ip: str, dest_ip: str, identifier: str) -> bool:
-        """
-        检查 run plog 中是否有发起 connect 的日志
-
-        要求找到 local_ip 与 src_ip 相同、remote_ip 与 dest_ip 相同、
-        且 identifier 是 tag 的子串。
-
-        Args:
-            plog_paths: run plog 文件路径列表
-            src_ip: client 端 IP
-            dest_ip: server 端 IP
-            identifier: 通信域标识符
-
-        Returns:
-            True 如果找到匹配的 connect 行，False 如果没找到
-        """
-        return ConnectInfoCollector.get_connect_timestamp(
-            plog_paths, src_ip, dest_ip, identifier
-        ) is not None
-
-    @staticmethod
-    def get_connect_timestamp(
+    def extract_connect_info(
         plog_paths: List[str], src_ip: str, dest_ip: str, identifier: str
-    ) -> Optional[str]:
+    ) -> List[Tuple[str, str]]:
         """
-        获取匹配的 connect 行的时间戳
-
-        要求找到 local_ip 与 src_ip 相同、remote_ip 与 dest_ip 相同、
-        且 identifier 是 tag 的子串。
+        从 run plog 中提取所有匹配的 client 发起 connect 的时间戳和原始日志行。
 
         Args:
             plog_paths: run plog 文件路径列表
@@ -72,8 +48,9 @@ class ConnectInfoCollector:
             identifier: 通信域标识符
 
         Returns:
-            匹配的 connect 行的时间戳字符串，如果没找到返回 None
+            匹配的 (timestamp, raw_line) 列表
         """
+        results: List[Tuple[str, str]] = []
         for plog_path in plog_paths:
             try:
                 with open(plog_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -99,39 +76,36 @@ class ConnectInfoCollector:
                     remote_ip = remote_match.group(1)
                     tag = tag_match.group(1)
 
-                    # local_ip 必须与 src_ip 相同
                     if local_ip != src_ip:
                         continue
 
-                    # remote_ip 必须与 dest_ip 相同
                     if remote_ip != dest_ip:
                         continue
 
-                    # identifier 必须是 tag 的子串
                     if identifier not in tag:
                         continue
 
-                    # 找到匹配的 connect 行，提取时间戳
                     ts_match = ConnectInfoCollector.TIMESTAMP_PATTERN.search(line)
-                    if ts_match:
-                        return ts_match.group(1)
+                    timestamp = ts_match.group(1) if ts_match else ''
+                    results.append((timestamp, line.rstrip()))
             except Exception:
                 continue
 
-        return None
+        return results
 
     @staticmethod
-    def get_last_timestamp(plog_paths: List[str]) -> Optional[str]:
+    def extract_last_log_info(plog_paths: List[str]) -> Optional[Tuple[str, str]]:
         """
-        获取多个 plog 文件中最后一个日志行的时间戳中的最大值
+        获取多个 plog 文件中时间戳最大的最后一行日志及其时间戳。
 
         Args:
             plog_paths: plog 文件路径列表
 
         Returns:
-            最晚的时间戳字符串，如果没找到返回 None
+            (timestamp, raw_line) 如果找到，否则返回 None
         """
-        max_timestamp = None
+        max_ts = None
+        max_line = None
         for plog_path in plog_paths:
             try:
                 with open(plog_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -145,9 +119,12 @@ class ConnectInfoCollector:
                 ts_match = ConnectInfoCollector.TIMESTAMP_PATTERN.search(last_line)
                 if ts_match:
                     ts = ts_match.group(1)
-                    if max_timestamp is None or ts > max_timestamp:
-                        max_timestamp = ts
+                    if max_ts is None or ts > max_ts:
+                        max_ts = ts
+                        max_line = last_line.rstrip()
             except Exception:
                 continue
 
-        return max_timestamp
+        if max_ts and max_line:
+            return (max_ts, max_line)
+        return None

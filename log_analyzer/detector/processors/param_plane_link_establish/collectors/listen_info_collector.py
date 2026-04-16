@@ -20,7 +20,7 @@ Listen 信息收集器
 从日志文件中检查是否发起了 ra_socket_listen_start 监听。
 """
 import re
-from typing import List, Optional
+from typing import List, Tuple
 
 
 class ListenInfoCollector:
@@ -40,13 +40,9 @@ class ListenInfoCollector:
     TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
 
     @staticmethod
-    def has_listening(plog_paths: List[str], dest_ip: str, dest_port: str, error_timestamp: str = None) -> bool:
+    def extract_listening_info(plog_paths: List[str], dest_ip: str, dest_port: str, error_timestamp: str = None) -> List[Tuple[str, str]]:
         """
-        检查 server 端的 run plog 中是否有发起监听的日志
-
-        要求找到 local_ip 与 dest_ip 相等的日志行，
-        如果日志行还存在 port 内容，port 也要与 dest_port 相等。
-        如果传入了 error_timestamp，则监听时间必须小于 error_timestamp 才算有效。
+        从 server 端的 run plog 中提取所有匹配的监听信息。
 
         Args:
             plog_paths: run plog 文件路径列表
@@ -55,8 +51,9 @@ class ListenInfoCollector:
             error_timestamp: 故障报错时间戳字符串，用于判断监听是否在报错之前
 
         Returns:
-            True 如果找到匹配的监听行（且监听时间 < error_timestamp），False 如果没找到
+            匹配的 (timestamp, raw_line) 列表
         """
+        results: List[Tuple[str, str]] = []
         for plog_path in plog_paths:
             try:
                 with open(plog_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -71,19 +68,15 @@ class ListenInfoCollector:
                         continue
 
                     local_ip = listen_match.group(1)
-
-                    # local_ip 必须与 dest_ip 相等
                     if local_ip != dest_ip:
                         continue
 
-                    # 如果日志行有 port，port 也需要与 dest_port 相等
                     port_match = ListenInfoCollector.LISTEN_PORT_PATTERN.search(line)
                     if port_match:
                         listen_port = port_match.group(1)
                         if listen_port != dest_port:
                             continue
 
-                    # 找到匹配的监听行，如果需要时间判断则提取时间戳
                     if error_timestamp:
                         ts_match = ListenInfoCollector.TIMESTAMP_PATTERN.search(line)
                         if ts_match:
@@ -93,8 +86,11 @@ class ListenInfoCollector:
                         else:
                             continue
 
-                    return True
+                    ts_match = ListenInfoCollector.TIMESTAMP_PATTERN.search(line)
+                    timestamp = ts_match.group(1) if ts_match else ''
+                    results.append((timestamp, line.rstrip()))
+
             except Exception:
                 continue
 
-        return False
+        return results

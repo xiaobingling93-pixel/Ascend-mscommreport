@@ -19,12 +19,10 @@ Server端未发起监听规则
 
 判断建链超时是否由server端没有发起socket监听引起。
 """
-from typing import List, Optional
+from typing import List
 
 from ..rule_base import ParamPlaneLinkEstablishRule
 from ....models import FaultContext
-from ..collectors.listen_info_collector import ListenInfoCollector
-from ..collectors.timeout_collector import TimeoutCollector
 
 
 class ServerNotListeningRule(ParamPlaneLinkEstablishRule):
@@ -32,7 +30,7 @@ class ServerNotListeningRule(ParamPlaneLinkEstablishRule):
     Server端未发起监听规则
 
     判断逻辑：
-    1. 通过 iterate_link_info 获取 client 端的 LINK_ERROR_INFO
+    1. 通过 get_link_info 获取 client 端的 LINK_ERROR_INFO
     2. 从 client 端的 debug plog 中提取故障报错时间戳
     3. 在 server 端的 run plog 中搜索监听行
     4. 如果没找到监听行，或者监听时间 >= 报错时间，则匹配此规则
@@ -52,50 +50,27 @@ class ServerNotListeningRule(ParamPlaneLinkEstablishRule):
         Returns:
             是否匹配该规则
         """
-        for identifier, link_info in self.iterate_link_info(context, key):
-            # 从 client 端的 debug plog 中提取故障报错时间戳
-            src_debug_paths = context.get_debug_plog_path(identifier, link_info.src_rank)
-            if not src_debug_paths:
-                continue
+        link_info = self.get_link_info(key)
+        if not link_info or link_info.my_role != 'client':
+            return False
 
-            error_ts = self._extract_error_timestamp(src_debug_paths[0])
-            if not error_ts:
-                continue
+        # 从缓存获取 server 端监听信息，None 表示未找到有效监听
+        listen_info = self.get_listen_info(key)
 
-            # 获取 server 端（dest_rank）的 run plog 文件
-            run_plog_paths = context.get_run_plog_path(identifier, link_info.dest_rank)
-            if not run_plog_paths:
-                continue
+        if not listen_info:
+            identifier = self.get_identifier(context, key)
+            if not identifier:
+                return False
 
-            # 在 server 端的 run plog 中搜索监听行（要求监听时间 < 报错时间）
-            has_listen = ListenInfoCollector.has_listening(
-                run_plog_paths, link_info.dest_ip, link_info.dest_port, error_ts
-            )
-
-            if not has_listen:
-                context.set('server_not_listening_identifier', identifier)
-                context.set('server_not_listening_src_rank', link_info.src_rank)
-                context.set('server_not_listening_dest_rank', link_info.dest_rank)
-                context.set('server_not_listening_dest_ip', link_info.dest_ip)
-                context.set('server_not_listening_dest_port', link_info.dest_port)
-                return True
+            context.set('server_not_listening_identifier', identifier)
+            context.set('server_not_listening_src_rank', link_info.src_rank)
+            context.set('server_not_listening_dest_rank', link_info.dest_rank)
+            context.set('server_not_listening_dest_ip', link_info.dest_ip)
+            context.set('server_not_listening_dest_port', link_info.dest_port)
+            context.set('server_not_listening_key', key)
+            return True
 
         return False
-
-    def _extract_error_timestamp(self, debug_plog_path: str) -> Optional[str]:
-        """
-        从 debug plog 中提取故障报错时间戳
-
-        Args:
-            debug_plog_path: debug plog 文件路径
-
-        Returns:
-            时间戳字符串，如果未找到返回 None
-        """
-        timeout_info = TimeoutCollector.extract_timeout_info_from_file(debug_plog_path)
-        if timeout_info and timeout_info[0]:
-            return timeout_info[0].strftime('%Y-%m-%d-%H:%M:%S.%f')
-        return None
 
     def generate_solution(self, context: FaultContext) -> List[str]:
         """
@@ -116,8 +91,17 @@ class ServerNotListeningRule(ParamPlaneLinkEstablishRule):
         if any(v is None for v in [identifier, src_rank, dest_rank, dest_ip, dest_port]):
             return ["参数面建链超时，可能是server端没有发起监听导致"]
 
-        return [
+        solution = [
             f"通信域{identifier}中rank{src_rank}和rank{dest_rank}参数面建链，"
             f"但rank{dest_rank}作为server端在超时前没有发起监听，ip为{dest_ip},端口号为{dest_port}，"
             f"请联系HCCL专家排查未监听原因"
         ]
+
+        key = context.get('server_not_listening_key')
+        analysis = self.build_analysis_step(key) if key else []
+        if analysis:
+            solution.append("")
+            solution.append("分析过程:")
+            solution.extend(analysis)
+
+        return solution

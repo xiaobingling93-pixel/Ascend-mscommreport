@@ -23,7 +23,6 @@ from typing import List
 
 from ..rule_base import ParamPlaneLinkEstablishRule
 from ....models import FaultContext
-from ..collectors.connect_info_collector import ConnectInfoCollector
 
 
 class ServerProcessExitRule(ParamPlaneLinkEstablishRule):
@@ -31,13 +30,10 @@ class ServerProcessExitRule(ParamPlaneLinkEstablishRule):
     Server进程提前退出规则
 
     判断逻辑：
-    1. 从故障组的 comm_infos 中获取 identifier 和 rank_id
-    2. 通过 get_debug_plog_path 获取 debug plog，LinkInfoCollector 提取 LINK_ERROR_INFO
-    3. 检查 MyRole 是否为 client
-    4. 通过 ConnectInfoCollector 确认 client 已发起 connect（获取 connect 时间戳）
-    5. 通过 get_run_plog_path 获取 server 端的 run plog
-    6. 从 server 端 plog 最后一行提取时间戳作为进程退出时间
-    7. 如果 server 退出时间 < client connect 时间，则 server 进程提前退出
+    1. 通过 get_link_info 获取 client 端的 LINK_ERROR_INFO
+    2. 通过 get_connect_info 确认 client 已发起 connect
+    3. 通过 get_process_exit_ts 获取 server 进程最后时间戳
+    4. 如果 server 退出时间 < client connect 时间，则 server 进程提前退出
     """
 
     def __init__(self, priority: int = 3):
@@ -54,42 +50,39 @@ class ServerProcessExitRule(ParamPlaneLinkEstablishRule):
         Returns:
             是否匹配该规则
         """
-        for identifier, link_info in self.iterate_link_info(context, key):
-            # 获取 client 端的 run plog，确认已发起 connect 并获取时间戳
-            client_plog_paths = context.get_run_plog_path(identifier, link_info.src_rank)
-            if not client_plog_paths:
-                continue
+        link_info = self.get_link_info(key)
+        if not link_info or link_info.my_role != 'client':
+            return False
 
-            client_connect_ts = ConnectInfoCollector.get_connect_timestamp(
-                client_plog_paths, link_info.src_ip, link_info.dest_ip, identifier
-            )
-            if not client_connect_ts:
-                # client 没有发起 connect，由 ClientNotConnectRule 处理
-                continue
+        identifier = self.get_identifier(context, key)
+        if not identifier:
+            return False
 
-            # 获取 server 端的 run plog，提取最后一个时间戳
-            server_plog_paths = context.get_run_plog_path(identifier, link_info.dest_rank)
-            if not server_plog_paths:
-                # server 端日志文件不存在，说明 server 进程已退出，必然早于 client connect
-                context.set('server_exit_identifier', identifier)
-                context.set('server_exit_src_rank', link_info.src_rank)
-                context.set('server_exit_dest_rank', link_info.dest_rank)
-                return True
+        # 从缓存获取 client connect 时间戳
+        connect_info = self.get_connect_info(key)
+        if not connect_info:
+            return False
+        client_connect_ts = connect_info[0][0]
 
-            server_exit_ts = ConnectInfoCollector.get_last_timestamp(server_plog_paths)
-            if not server_exit_ts:
-                # 无法提取时间戳，视为 server 进程已退出
-                context.set('server_exit_identifier', identifier)
-                context.set('server_exit_src_rank', link_info.src_rank)
-                context.set('server_exit_dest_rank', link_info.dest_rank)
-                return True
+        # 从缓存获取 server 进程最后日志信息
+        server_exit_info = self.get_process_exit_ts(key, 'server')
 
-            # 如果 server 退出时间 < client connect 时间，则 server 提前退出
-            if server_exit_ts < client_connect_ts:
-                context.set('server_exit_identifier', identifier)
-                context.set('server_exit_src_rank', link_info.src_rank)
-                context.set('server_exit_dest_rank', link_info.dest_rank)
-                return True
+        if not server_exit_info:
+            context.set('server_exit_identifier', identifier)
+            context.set('server_exit_src_rank', link_info.src_rank)
+            context.set('server_exit_dest_rank', link_info.dest_rank)
+            context.set('server_exit_key', key)
+            return True
+
+        server_exit_ts = server_exit_info[0]
+
+        # 如果 server 退出时间 < client connect 时间，则 server 提前退出
+        if server_exit_ts < client_connect_ts:
+            context.set('server_exit_identifier', identifier)
+            context.set('server_exit_src_rank', link_info.src_rank)
+            context.set('server_exit_dest_rank', link_info.dest_rank)
+            context.set('server_exit_key', key)
+            return True
 
         return False
 
@@ -110,8 +103,17 @@ class ServerProcessExitRule(ParamPlaneLinkEstablishRule):
         if any(v is None for v in [identifier, src_rank, dest_rank]):
             return ["参数面建链超时，可能是server端进程提前退出导致"]
 
-        return [
+        solution = [
             f"通信域{identifier}的rank[{src_rank}]在参数面建链作为client超时，"
             f"因为rank[{dest_rank}]作为server端进程提前退出，"
             f"需联系HCCL专家排查退出原因"
         ]
+
+        key = context.get('server_exit_key')
+        analysis = self.build_analysis_step(key) if key else []
+        if analysis:
+            solution.append("")
+            solution.append("分析过程:")
+            solution.extend(analysis)
+
+        return solution

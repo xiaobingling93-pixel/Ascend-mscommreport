@@ -19,7 +19,7 @@ TLS配置不一致规则
 
 判断建链超时是否由TLS配置不一致引起。
 """
-from typing import List, Tuple
+from typing import List
 
 from ..rule_base import ParamPlaneLinkEstablishRule
 from ....models import FaultContext
@@ -31,7 +31,7 @@ class TlsConfigInconsistentRule(ParamPlaneLinkEstablishRule):
     TLS配置不一致规则
 
     判断逻辑：
-    1. 从日志中提取 srcRank 和 destRank
+    1. 通过 get_link_info 获取建链超时的 rank 对
     2. 获取两个 rank 的 TLS 状态
     3. 如果 TLS 状态不一致，则匹配此规则
     """
@@ -50,51 +50,29 @@ class TlsConfigInconsistentRule(ParamPlaneLinkEstablishRule):
         Returns:
             是否匹配该规则
         """
-        # 提取公共信息
-        result = self.extract_param_plane_fault_info(context, key)
-        if not result:
+        link_info = self.get_link_info(key)
+        if not link_info:
             return False
 
-        current_group, identifier, matching_faults, all_rank_pairs = result
-
+        identifier = self.get_identifier(context, key)
         if not identifier:
             return False
 
-        # 检查 TLS 状态是否一致
-        has_inconsistent_tls = self._check_tls_states(context, identifier, all_rank_pairs)
+        src_rank = link_info.src_rank
+        dest_rank = link_info.dest_rank
 
-        return has_inconsistent_tls
+        # 获取 src_rank 的 TLS 状态
+        src_tls = TlsCollector.get_tls_state(context, identifier, src_rank)
 
-    def _check_tls_states(
-        self,
-        context: FaultContext,
-        identifier: str,
-        rank_pairs: List[Tuple[int, int]]
-    ) -> bool:
-        """
-        检查所有涉及 rank 的 TLS 状态是否一致
+        # 获取 dest_rank 的 TLS 状态
+        dest_tls = TlsCollector.get_tls_state(context, identifier, dest_rank)
 
-        Args:
-            context: 故障分析上下文
-            identifier: 通信域标识符
-            rank_pairs: [(srcRank, destRank), ...]
-
-        Returns:
-            True 如果 TLS 状态不一致，False 如果一致
-        """
-        for src_rank, dest_rank in rank_pairs:
-            # 获取 src_rank 的 TLS 状态
-            src_tls = TlsCollector.get_tls_state(context, identifier, src_rank)
-
-            # 获取 dest_rank 的 TLS 状态
-            dest_tls = TlsCollector.get_tls_state(context, identifier, dest_rank)
-
-            # 比较两个状态是否都有效且不一致
-            if 0 <= src_tls != dest_tls >= 0:
-                # 发现不一致，记录这对 rank 和 identifier
-                context.set('inconsistent_rank_pair', (src_rank, dest_rank))
-                context.set('inconsistent_identifier', identifier)
-                return True
+        # 比较两个状态是否都有效且不一致
+        if src_tls >= 0 and dest_tls >= 0 and src_tls != dest_tls:
+            context.set('inconsistent_rank_pair', (src_rank, dest_rank))
+            context.set('inconsistent_identifier', identifier)
+            context.set('inconsistent_key', key)
+            return True
 
         return False
 
@@ -121,9 +99,17 @@ class TlsConfigInconsistentRule(ParamPlaneLinkEstablishRule):
         dest_process_id = context.get_process_id(identifier, dest_rank) if identifier else None
 
         # 构建解决方案
-        solution = f"rank[{src_rank}]和rank[{dest_rank}]的TLS状态不一致，请在每台机器上执行for i in {{机器卡数}}; do hccn_tool -i $i -tls -s enable 1; done，如16卡的机器可以执行for i in {{0..15}}; do hccn_tool -i $i -tls -s enable 1; done"
-        # 换行拼接进程号信息
-        solution += f"\n本端进程号:{src_process_id if src_process_id else '不存在'}"
-        solution += f"\n对端进程号:{dest_process_id if dest_process_id else '不存在'}"
+        solution = [
+            f"rank[{src_rank}]和rank[{dest_rank}]的TLS状态不一致，请在每台机器上执行for i in {{机器卡数}}; do hccn_tool -i $i -tls -s enable 1; done，如16卡的机器可以执行for i in {{0..15}}; do hccn_tool -i $i -tls -s enable 1; done",
+            f"本端进程号:{src_process_id if src_process_id else '不存在'}",
+            f"对端进程号:{dest_process_id if dest_process_id else '不存在'}",
+        ]
 
-        return [solution]
+        key = context.get('inconsistent_key')
+        analysis = self.build_analysis_step(key) if key else []
+        if analysis:
+            solution.append("")
+            solution.append("分析过程:")
+            solution.extend(analysis)
+
+        return solution

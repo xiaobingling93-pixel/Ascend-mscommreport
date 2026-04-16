@@ -19,14 +19,12 @@
 
 包含该故障类型特有的信息收集器。
 """
-from .rank_pair_collector import RankPairCollector
 from .tls_collector import TlsCollector
 from .entry_collector import EntryCollector
 from .algorithm_collector import AlgorithmCollector
-from .error_log_collector import ErrorLogCollector
 from .timeout_collector import TimeoutCollector
 from .link_info_collector import LinkInfoCollector
 from .connect_info_collector import ConnectInfoCollector
 from .listen_info_collector import ListenInfoCollector
 
-__all__ = ['RankPairCollector', 'TlsCollector', 'EntryCollector', 'AlgorithmCollector', 'ErrorLogCollector', 'TimeoutCollector', 'LinkInfoCollector', 'ConnectInfoCollector', 'ListenInfoCollector']
+__all__ = ['TlsCollector', 'EntryCollector', 'AlgorithmCollector', 'TimeoutCollector', 'LinkInfoCollector', 'ConnectInfoCollector', 'ListenInfoCollector']

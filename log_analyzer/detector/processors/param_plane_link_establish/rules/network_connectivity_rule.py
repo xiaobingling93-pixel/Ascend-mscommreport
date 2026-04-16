@@ -17,13 +17,12 @@
 """
 网络连通性规则
 
-判断建链超时是否由两端位于不同节点导致网络连通性问题引起。
+判断建链超时是否由网络连通性问题引起。
 """
-from typing import List, Tuple, Optional, Dict
+from typing import List
 
 from ..rule_base import ParamPlaneLinkEstablishRule
 from ....models import FaultContext
-from ..collectors.rank_pair_collector import RankPairCollector
 
 
 class NetworkConnectivityRule(ParamPlaneLinkEstablishRule):
@@ -31,9 +30,9 @@ class NetworkConnectivityRule(ParamPlaneLinkEstablishRule):
     网络连通性规则
 
     判断逻辑：
-    1. 存在两个 rank pair 相反（例如 (0, 24) 和 (24, 0)）
-    2. 两个故障位于不同的 worker 上
-    3. 如果满足条件，则匹配此规则
+    1. 从 link_info 中获取建链超时的 rank 对
+    2. 检查 rank 对两端的 worker 信息
+    3. 始终匹配此规则，根据是否同节点生成不同解决方案
     """
 
     def __init__(self, priority: int = 110):
@@ -41,7 +40,7 @@ class NetworkConnectivityRule(ParamPlaneLinkEstablishRule):
 
     def match(self, context: FaultContext, key: str) -> bool:
         """
-        判断是否是两端位于不同节点导致的建链超时
+        判断是否是网络连通性问题导致的建链超时
 
         Args:
             context: 故障分析上下文
@@ -50,98 +49,37 @@ class NetworkConnectivityRule(ParamPlaneLinkEstablishRule):
         Returns:
             是否匹配该规则
         """
-        # 提取公共信息
-        result = self.extract_param_plane_fault_info(context, key)
-        if not result:
+        link_info = self.get_link_info(key)
+        if not link_info:
             return False
 
-        current_group, identifier, matching_faults, all_rank_pairs = result
-
+        identifier = self.get_identifier(context, key)
         if not identifier:
             return False
 
-        # 需要至少 2 个故障才能进行相反 rank pair 匹配
-        if len(matching_faults) < 2:
-            return False
+        src_rank = link_info.src_rank
+        dest_rank = link_info.dest_rank
 
-        # 第一步：提取所有故障的 rank pair 和 worker 信息
-        # 字典: (src_rank, dest_rank) -> {worker_id, ...}
-        rank_pair_worker_info: Dict[Tuple[int, int], set] = {}
+        src_worker = context.get_worker_id(identifier, src_rank)
+        dest_worker = context.get_worker_id(identifier, dest_rank)
 
-        for fault in matching_faults:
-            source_file = getattr(fault.log_entry, 'source_file', '')
-            if not source_file:
-                continue
+        # 判断是否同节点
+        same_node = not (src_worker and dest_worker and src_worker != dest_worker)
 
-            # 提取 rank pair
-            rank_pairs = RankPairCollector.extract_from_file(source_file)
-            if not rank_pairs:
-                continue
+        context.set('network_connectivity_src_rank', src_rank)
+        context.set('network_connectivity_dest_rank', dest_rank)
+        context.set('network_connectivity_identifier', identifier)
+        context.set('network_connectivity_key', key)
+        context.set('network_connectivity_same_node', same_node)
 
-            src_rank, dest_rank = rank_pairs[0]
-            rank_pair_key = (src_rank, dest_rank)
+        # 获取 server 端 IP
+        if link_info.my_role == 'server':
+            server_ip = link_info.src_ip
+        else:
+            server_ip = link_info.dest_ip
+        context.set('network_connectivity_server_ip', server_ip)
 
-            # 从 FaultContext 获取 worker_id
-            worker_id = context.get_worker_id(identifier, src_rank)
-
-            if worker_id is None:
-                # 如果没有 worker_id，说明在同一节点，使用特殊标记
-                worker_id = "same_node"
-
-            if rank_pair_key not in rank_pair_worker_info:
-                rank_pair_worker_info[rank_pair_key] = set()
-            rank_pair_worker_info[rank_pair_key].add(worker_id)
-
-        if len(rank_pair_worker_info) < 2:
-            return False
-
-        # 第二步：找出所有相反的 rank pair 且位于不同 worker 上
-        result = self._find_cross_worker_reverse_pairs(rank_pair_worker_info)
-
-        if result:
-            # 缓存结果和 identifier 供 generate_solution 使用
-            src_rank, dest_rank = result
-            context.set('network_connectivity_src_rank', src_rank)
-            context.set('network_connectivity_dest_rank', dest_rank)
-            context.set('network_connectivity_identifier', identifier)
-            return True
-
-        return False
-
-    @staticmethod
-    def _has_cross_worker(workers_1: set, workers_2: set) -> bool:
-        """判断两个 worker 集合是否完全不重叠（位于不同 worker）"""
-        if not workers_1 or not workers_2:
-            return False
-        return workers_1.isdisjoint(workers_2)
-
-    def _find_cross_worker_reverse_pairs(
-        self,
-        rank_pair_worker_info: Dict[Tuple[int, int], set]
-    ) -> Optional[Tuple[int, int]]:
-        """
-        找出相反的 rank pair 且位于不同 worker 上
-
-        Args:
-            rank_pair_worker_info: 字典，key 为 (src_rank, dest_rank)，value 为 worker_id 集合
-
-        Returns:
-            (src_rank, dest_rank) 如果找到，否则返回 None
-        """
-        for (src_rank_1, dest_rank_1), workers_1 in rank_pair_worker_info.items():
-            reverse_key = (dest_rank_1, src_rank_1)
-            if reverse_key not in rank_pair_worker_info:
-                continue
-
-            workers_2 = rank_pair_worker_info[reverse_key]
-            if not self._has_cross_worker(workers_1, workers_2):
-                continue
-
-            if src_rank_1 < dest_rank_1:
-                return (src_rank_1, dest_rank_1)
-            return (dest_rank_1, src_rank_1)
-
-        return None
+        return True
 
     def generate_solution(self, context: FaultContext) -> List[str]:
         """
@@ -156,22 +94,42 @@ class NetworkConnectivityRule(ParamPlaneLinkEstablishRule):
         src_rank = context.get('network_connectivity_src_rank')
         dest_rank = context.get('network_connectivity_dest_rank')
         identifier = context.get('network_connectivity_identifier')
+        same_node = context.get('network_connectivity_same_node', False)
+        server_ip = context.get('network_connectivity_server_ip', '')
 
         if src_rank is None or dest_rank is None:
-            return ["参数面建链超时，可能两端位于不同节点导致网络连通性问题"]
+            return ["参数面建链超时，可能是网络连通性问题导致"]
 
         # 获取进程号
         src_process_id = context.get_process_id(identifier, src_rank) if identifier else None
         dest_process_id = context.get_process_id(identifier, dest_rank) if identifier else None
 
-        # 构建解决方案
-        solution = (
-            f"{src_rank}与{dest_rank}参数面建链失败，"
-            f"两端位于不同的节点上，很可能是网络连通性不通，"
-            f"请使用hccn_tool命令ping另外一个节点的device ip"
-        )
-        # 换行拼接进程号信息
-        solution += f"\n本端进程号:{src_process_id if src_process_id else '不存在'}"
-        solution += f"\n对端进程号:{dest_process_id if dest_process_id else '不存在'}"
+        if same_node:
+            solution = [
+                f"rank[{src_rank}]与rank[{dest_rank}]参数面建链失败，"
+                f"两端位于同一个节点上，"
+                f"请执行hccn_tool -i 0 -hccs_ping -g address {server_ip} pkt 1792检查server节点的网络连通性",
+                f"本端进程号:{src_process_id if src_process_id else '不存在'}",
+                f"对端进程号:{dest_process_id if dest_process_id else '不存在'}",
+            ]
+        else:
+            # 不同节点：确定 client rank
+            link_info = self.get_link_info(context.get('network_connectivity_key') or '')
+            client_rank = dest_rank if link_info and link_info.my_role == 'server' else src_rank
 
-        return [solution]
+            solution = [
+                f"{src_rank}与{dest_rank}参数面建链失败，"
+                f"两端位于不同的节点上，很可能是网络连通性不通，"
+                f"请在rank[{client_rank}]的机器上执行for n in {{0..8}}; do hccn_tool -i $n -ping -g address {server_ip}; done",
+                f"本端进程号:{src_process_id if src_process_id else '不存在'}",
+                f"对端进程号:{dest_process_id if dest_process_id else '不存在'}",
+            ]
+
+        key = context.get('network_connectivity_key')
+        analysis = self.build_analysis_step(key) if key else []
+        if analysis:
+            solution.append("")
+            solution.append("分析过程:")
+            solution.extend(analysis)
+
+        return solution
