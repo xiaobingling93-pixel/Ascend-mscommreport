@@ -250,20 +250,35 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
         if link_info.timestamp:
             events.append((link_info.timestamp, link_info.my_role, '建链对报错信息'))
 
-        # Server listen
-        for ts, _ in (ParamPlaneLinkEstablishRule._listen_info_cache.get(key) or []):
-            events.append((ts, 'server', '发起端口监听'))
-
-        # Client connect
-        connect_info_list = ParamPlaneLinkEstablishRule._connect_info_cache.get(key) or []
-        for ts, _ in connect_info_list:
-            events.append((ts, 'client', '发起请求'))
-
-        # Client 请求结束（发起请求时间 + 超时时间）
+        # 超时信息（多处复用）
         timeout_info = ParamPlaneLinkEstablishRule._timeout_info_cache.get(key)
+
+        # Server listen + 端口监听结束
+        listen_info_list = ParamPlaneLinkEstablishRule._listen_info_cache.get(key) or []
+        if listen_info_list and timeout_info:
+            timeout_seconds = timeout_info[0]
+            for ts, _ in listen_info_list:
+                events.append((ts, 'server', '发起端口监听'))
+                try:
+                    dot_pos = ts.index('.', ts.index(':'))
+                    base_str = ts[:dot_pos]
+                    frac_str = ts[dot_pos:]
+                    start_dt = datetime.strptime(base_str, "%Y-%m-%d-%H:%M:%S")
+                    end_dt = start_dt + timedelta(seconds=timeout_seconds)
+                    end_ts_str = end_dt.strftime("%Y-%m-%d-%H:%M:%S") + frac_str
+                    events.append((end_ts_str, 'server', '端口监听结束'))
+                except (ValueError, IndexError):
+                    continue
+        else:
+            for ts, _ in listen_info_list:
+                events.append((ts, 'server', '发起端口监听'))
+
+        # Client connect + 请求结束
+        connect_info_list = ParamPlaneLinkEstablishRule._connect_info_cache.get(key) or []
         if connect_info_list and timeout_info:
             timeout_seconds = timeout_info[0]
             for ts, _ in connect_info_list:
+                events.append((ts, 'client', '发起请求'))
                 try:
                     dot_pos = ts.index('.', ts.index(':'))
                     base_str = ts[:dot_pos]
@@ -274,6 +289,9 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
                     events.append((end_ts_str, 'client', '发起请求结束'))
                 except (ValueError, IndexError):
                     continue
+        else:
+            for ts, _ in connect_info_list:
+                events.append((ts, 'client', '发起请求'))
 
         # 进程最后日志
         process_exit_ts = ParamPlaneLinkEstablishRule._process_exit_ts_cache.get(key)
@@ -284,7 +302,6 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
                     events.append((info[0], role, '进程退出'))
 
         # Timeout - 建链窗口开始和结束
-        timeout_info = ParamPlaneLinkEstablishRule._timeout_info_cache.get(key)
         if timeout_info:
             timeout_seconds, raw_line = timeout_info
             ts_match = ConnectInfoCollector.TIMESTAMP_PATTERN.search(raw_line)

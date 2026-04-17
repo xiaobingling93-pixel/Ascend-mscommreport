@@ -63,11 +63,9 @@ class ServerNoErrorRule(ParamPlaneLinkEstablishRule):
 
         # 获取 server 端的 debug plog
         server_debug_paths = context.get_debug_plog_path(identifier, link_info.dest_rank)
-        if not server_debug_paths:
-            return False
 
-        # 条件1：server 端的 debug plog 中没有 [ERROR] 日志
-        has_errors = self._check_server_has_errors(server_debug_paths)
+        # 条件1：server 端的 debug plog 中没有 [ERROR] 日志（包括 plog 不存在的情况）
+        has_errors = self._check_server_has_errors(server_debug_paths) if server_debug_paths else False
         if not has_errors:
             context.set('server_no_error_identifier', identifier)
             context.set('server_no_error_src_rank', link_info.src_rank)
