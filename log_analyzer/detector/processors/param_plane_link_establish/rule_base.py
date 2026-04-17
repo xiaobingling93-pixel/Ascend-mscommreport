@@ -412,7 +412,7 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
             return
 
         listen_info = ListenInfoCollector.extract_listening_info(
-            run_plog_paths, server_ip, server_port
+            run_plog_paths, server_ip
         )
         ParamPlaneLinkEstablishRule._listen_info_cache[key] = listen_info
 
@@ -556,7 +556,7 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
             ParamPlaneLinkEstablishRule._timeout_info_cache[key] = None
             return
 
-        timeout_info = TimeoutCollector.extract_timeout_log_info(src_debug_paths[0])
+        timeout_info = TimeoutCollector.extract_timeout_log_info(src_debug_paths)
         ParamPlaneLinkEstablishRule._timeout_info_cache[key] = timeout_info
 
     @staticmethod
@@ -573,15 +573,17 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
         return ParamPlaneLinkEstablishRule._timeout_info_cache.get(key)
 
     @staticmethod
-    def check_time_window_overlap(key: str) -> Optional[bool]:
+    def check_time_window_overlap(key: str, role: str = 'client') -> Optional[bool]:
         """
-        检查 client connect 时间窗口与 server accept 时间窗口是否有交集。
+        检查指定角色的时间窗口与建链窗口是否有交集。
 
+        建链窗口: [timeout_ts - timeout_seconds, timeout_ts]
         client connect 窗口: [connect_ts, connect_ts + timeout]
         server accept 窗口: [listen_ts, listen_ts + timeout]
 
         Args:
             key: 当前处理的 fault group key
+            role: 角色，'client' 时检查 server accept 窗口，'server' 时检查 client connect 窗口
 
         Returns:
             True 有交集, False 无交集, None 信息不足无法判断
@@ -591,28 +593,43 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
         if not timeout_info:
             return None
         timeout_seconds = timeout_info[0]
+        timeout_raw_line = timeout_info[1]
 
-        # client connect 时间窗口
-        connect_info = ParamPlaneLinkEstablishRule.get_connect_info(key)
-        if not connect_info:
+        # 建链窗口：[timeout_ts - timeout_seconds, timeout_ts]
+        ts_match = ConnectInfoCollector.TIMESTAMP_PATTERN.search(timeout_raw_line)
+        if not ts_match:
             return None
-        client_connect_ts = connect_info[0][0]
-        connect_dot = client_connect_ts.index('.', client_connect_ts.index(':'))
-        connect_base = client_connect_ts[:connect_dot]
-        connect_dt = datetime.strptime(connect_base, "%Y-%m-%d-%H:%M:%S")
-        connect_end_dt = connect_dt + timedelta(seconds=timeout_seconds)
-
-        # server accept 时间窗口
-        listen_info = ParamPlaneLinkEstablishRule.get_listen_info(key)
-        if not listen_info:
+        try:
+            timeout_base = ts_match.group(1)
+            timeout_dot = timeout_base.index('.', timeout_base.index(':'))
+            timeout_dt = datetime.strptime(timeout_base[:timeout_dot], "%Y-%m-%d-%H:%M:%S")
+            link_start_dt = timeout_dt - timedelta(seconds=timeout_seconds)
+        except (ValueError, IndexError):
             return None
-        listen_ts = listen_info[0][0]
-        listen_dot = listen_ts.index('.', listen_ts.index(':'))
-        listen_base = listen_ts[:listen_dot]
-        listen_dt = datetime.strptime(listen_base, "%Y-%m-%d-%H:%M:%S")
-        listen_end_dt = listen_dt + timedelta(seconds=timeout_seconds)
 
-        return not (connect_end_dt < listen_dt or connect_dt > listen_end_dt)
+        # 根据 role 选择要检查的时间窗口
+        if role == 'client':
+            # client 检查 server accept 时间窗口
+            info = ParamPlaneLinkEstablishRule.get_listen_info(key)
+        else:
+            # server 检查 client connect 时间窗口
+            info = ParamPlaneLinkEstablishRule.get_connect_info(key)
+
+        if not info:
+            return None
+
+        for ts, _ in info:
+            try:
+                dot = ts.index('.', ts.index(':'))
+                dt = datetime.strptime(ts[:dot], "%Y-%m-%d-%H:%M:%S")
+                end_dt = dt + timedelta(seconds=timeout_seconds)
+            except (ValueError, IndexError):
+                continue
+
+            if not (end_dt < link_start_dt or dt > timeout_dt):
+                return True
+
+        return False
 
     def build_process_id_lines(
         self,

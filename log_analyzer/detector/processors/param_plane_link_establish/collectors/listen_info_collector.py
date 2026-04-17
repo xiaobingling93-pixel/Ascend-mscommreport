@@ -40,14 +40,13 @@ class ListenInfoCollector:
     TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
 
     @staticmethod
-    def extract_listening_info(plog_paths: List[str], dest_ip: str, dest_port: str, error_timestamp: str = None) -> List[Tuple[str, str]]:
+    def extract_listening_info(plog_paths: List[str], dest_ip: str, error_timestamp: str = None) -> List[Tuple[str, str]]:
         """
         从 server 端的 run plog 中提取所有匹配的监听信息。
 
         Args:
             plog_paths: run plog 文件路径列表
             dest_ip: 目标 IP
-            dest_port: 目标端口号
             error_timestamp: 故障报错时间戳字符串，用于判断监听是否在报错之前
 
         Returns:
@@ -70,12 +69,6 @@ class ListenInfoCollector:
                     local_ip = listen_match.group(1)
                     if local_ip != dest_ip:
                         continue
-
-                    port_match = ListenInfoCollector.LISTEN_PORT_PATTERN.search(line)
-                    if port_match:
-                        listen_port = port_match.group(1)
-                        if listen_port != dest_port:
-                            continue
 
                     if error_timestamp:
                         ts_match = ListenInfoCollector.TIMESTAMP_PATTERN.search(line)

@@ -37,13 +37,13 @@ class Test44ServerConnectAfterError(StandardStructureTestBase):
         self._assert_fault_exists(fault_groups, "参数面建链超时")
 
     def test_03_solution_server_connect_after_error(self):
-        """测试解决方案：应该提示client端发起socket请求的时间点在server端报错之后"""
+        """测试解决方案：应该提示client端发起socket请求的时间点不在server端accept时间范围内"""
         fault_groups = self._analyze_test_case("44_参数面建链超时server报错client端发起connect的时间在报错时间之后")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="参数面建链超时",
-            expected_content="rank[0]作为client端发起socket请求的时间点在server端报错之后"
+            expected_content="rank[0]作为client端发起socket请求的时间点不在server端accept时间范围内"
         )
 
     def test_04_solution_contains_server_role(self):
@@ -66,14 +66,14 @@ class Test44ServerConnectAfterError(StandardStructureTestBase):
             expected_content="通信域hccl_world_group"
         )
 
-    def test_06_solution_contains_contact_expert(self):
-        """测试解决方案：应该提示联系HCCL专家排查"""
+    def test_06_solution_contains_entry_log_suggestion(self):
+        """测试解决方案：应该提示排查client端算子是否下发"""
         fault_groups = self._analyze_test_case("44_参数面建链超时server报错client端发起connect的时间在报错时间之后")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="参数面建链超时",
-            expected_content="请联系HCCL专家排查原因"
+            expected_content="需要排查client端算子是否下发"
         )
 
     def test_07_comm_info(self):

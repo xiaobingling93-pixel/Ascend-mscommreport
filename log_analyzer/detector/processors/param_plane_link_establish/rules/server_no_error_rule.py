@@ -75,8 +75,8 @@ class ServerNoErrorRule(ParamPlaneLinkEstablishRule):
             context.set('server_no_error_key', key)
             return True
 
-        # 条件2：client connect 时间窗口与 server accept 时间窗口无交集
-        overlap = self.check_time_window_overlap(key)
+        # 条件2：server accept 时间窗口与建链窗口无交集
+        overlap = self.check_time_window_overlap(key, role='client')
         if overlap is False:
             context.set('server_no_error_identifier', identifier)
             context.set('server_no_error_src_rank', link_info.src_rank)

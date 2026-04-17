@@ -58,8 +58,8 @@ class ServerConnectAfterErrorRule(ParamPlaneLinkEstablishRule):
         if not identifier:
             return False
 
-        # 检查 client connect 时间窗口与 server accept 时间窗口是否有交集
-        overlap = self.check_time_window_overlap(key)
+        # 检查 client connect 时间窗口与建链窗口是否有交集
+        overlap = self.check_time_window_overlap(key, role='server')
         if overlap is False:
             context.set('server_connect_after_error_identifier', identifier)
             context.set('server_connect_after_error_src_rank', link_info.src_rank)

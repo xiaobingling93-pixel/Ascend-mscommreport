@@ -1,7 +1,0 @@
-[ERROR] HCCL(21273,all_reduce_test):2025-03-14-15:53:53.370.051 [hccl_socket_manager.cc:813] [137400][Wait][LinkEstablish]wait socket establish timeout, role[1] rank[24] timeout[480]
-[ERROR] HCCL(21273,python):2025-03-14-15:53:53.000 [topoinfo_exchange_server.cc:115] [Get][Connection] tag[172.27.41.90%eth0_64000_0_1757081746616696]
-[ERROR] HCCL(21273,all_reduce_test):2025-03-14-15:53:53.370.052 [hccl_socket_manager.cc:639] [137400]   _________________________LINK_ERROR_INFO___________________________
-[ERROR] HCCL(21273,all_reduce_test):2025-03-14-15:53:53.370.053 [hccl_socket_manager.cc:640] [137400]   |  comm error, device[0]
-[ERROR] HCCL(21273,all_reduce_test):2025-03-14-15:53:53.370.054 [hccl_socket_manager.cc:642] [137400]   |  dest_ip(user_rank)  |   dest_port   |  src_ip(user_rank)   |   src_port   |   MyRole   |   Status   |    TlsStatus   |
-[ERROR] HCCL(21273,all_reduce_test):2025-03-14-15:53:53.370.055 [hccl_socket_manager.cc:644] [137400]   |----------------------|---------------|----------------------|--------------|------------|------------|----------------|
-[ERROR] HCCL(21273,all_reduce_test):2025-03-14-15:53:53.370.056 [hccl_socket_manager.cc:599] [137400]   |  172.27.51.2(0)   |  16666  |   172.27.51.26(24)   |  0  |  server  | time out |   ENABLE  | LinkInfo

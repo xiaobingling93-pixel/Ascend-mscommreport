@@ -53,7 +53,7 @@ class Test26NetworkConnectivity(StandardStructureTestBase):
         self._assert_solution_contains(
             fault_groups,
             fault_name="参数面建链超时",
-            expected_content="很可能是网络连通性不通"
+            expected_content="请在rank[0]的机器上执行"
         )
 
     def test_05_solution_contains_hccn_tool_suggestion(self):
@@ -63,7 +63,7 @@ class Test26NetworkConnectivity(StandardStructureTestBase):
         self._assert_solution_contains(
             fault_groups,
             fault_name="参数面建链超时",
-            expected_content="请使用hccn_tool命令ping另外一个节点的device ip"
+            expected_content="hccn_tool -i $n -ping -g address"
         )
 
     def test_06_priority_over_tls_inconsistent(self):
@@ -84,8 +84,8 @@ class Test26NetworkConnectivity(StandardStructureTestBase):
         # 验证解决方案包含网络连通性相关的内容
         self.assertIn("两端位于不同的节点上", solution,
                      "解决方案应包含两端位于不同节点的信息")
-        self.assertIn("网络连通性", solution,
-                     "解决方案应包含网络连通性问题")
+        self.assertIn("请在rank[0]的机器上执行", solution,
+                     "解决方案应包含client端机器执行命令的建议")
         self.assertIn("hccn_tool", solution,
                      "解决方案应包含hccn_tool命令建议")
 
