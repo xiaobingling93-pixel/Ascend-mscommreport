@@ -88,7 +88,7 @@ class ExecParamDiffRule(DecisionRule):
         context = ""
         if len(rank_map) > 1:
             max_count = 0
-            context += f"算子{error_type}不一致，请检查业务逻辑\n\n"
+            context += f"全量超时，超时报错记录中算子{error_type}不一致，请检查业务逻辑\n\n"
             context += f"== 算子{error_type}统计 ==\n"
             for key, value in rank_map.items():
                 if max_count < len(value):
@@ -117,12 +117,12 @@ class ExecParamDiffRule(DecisionRule):
         return rand_ids
 
     def _format_source_files(self, rank_map: {}):
-        rand_ids = ""
+        log_context = ""
         for rank_item in rank_map:
-            rand_ids += "日志路径：" + rank_item["source_file"] + "\n"
-            rand_ids += rank_item["log_messages"] + "\n"
+            log_context += "日志路径：" + rank_item["source_file"] + "\n"
+            log_context += rank_item["log_messages"] + "\n"
 
-        return rand_ids
+        return log_context
 
     def generate_solution(self, context: FaultContext) -> List[str]:
         """
