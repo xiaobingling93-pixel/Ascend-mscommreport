@@ -22,6 +22,9 @@
 import re
 from typing import List, Optional, Dict
 
+from ....fault_constants import FAULT_RANK_NOT_CONNECTED
+from ....models import FaultContext
+
 
 class RankIdExtractor:
     """
@@ -32,6 +35,55 @@ class RankIdExtractor:
 
     # 匹配 "connected rankinfo[LINE X]:[rank_id1],[rank_id2],..." 格式的正则表达式
     CONNECTED_RANKINFO_PATTERN = r'connected rankinfo\[LINE \d+\]:\s*(.+?);'
+
+    @staticmethod
+    def extract_unconnected_rank_ids(context: FaultContext, key: str) -> Optional[List[int]]:
+        """
+        从故障分析上下文中提取未连接的 rankId 列表。
+
+        Args:
+            context: 故障分析上下文
+            key: 当前处理的故障组 key
+
+        Returns:
+            未连接的 rankId 列表，如果无法获取则返回 None
+        """
+        # 1. 获取并校验故障组
+        current_group = context.fault_groups.get(key)
+        if not current_group or current_group.category.level3 != FAULT_RANK_NOT_CONNECTED:
+            return None
+        if not current_group.comm_infos:
+            return None
+
+        ref_comm_item = next(iter(current_group.comm_infos.values()), None)
+        if not ref_comm_item or not ref_comm_item.comm_info:
+            return None
+
+        ref_comm_info = ref_comm_item.comm_info
+        identifier = ref_comm_info.identifier
+        if not identifier:
+            return None
+
+        # 2. 读取 rank0 的 debug plog 日志文本
+        plog_files = context.get_debug_plog_path(identifier, 0)
+        log_text = None
+        if plog_files:
+            texts = []
+            for plog_file in plog_files:
+                try:
+                    with open(plog_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        texts.append(f.read())
+                except Exception:
+                    continue
+            log_text = "\n".join(texts) if texts else None
+
+        # 3. 计算未连接的 rankId
+        return RankIdExtractor.extract(
+            log_text,
+            context.comm_info_map,
+            ref_comm_item.process_id,
+            ref_comm_info
+        )
 
     @staticmethod
     def extract(
@@ -172,6 +224,8 @@ class RankIdExtractor:
         connected_ranks = []
 
         # 查找所有connected rankinfo行
+        if not log_text:
+            return connected_ranks
         matches = re.findall(RankIdExtractor.CONNECTED_RANKINFO_PATTERN, log_text)
 
         for match in matches:

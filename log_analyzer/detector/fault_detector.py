@@ -19,7 +19,8 @@
 
 负责在日志中检测故障实例。
 """
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional
+from datetime import timedelta
 import re
 import os
 
@@ -28,6 +29,7 @@ from ..parser import LogEntry, LogFile, CommunicationInfo, ProgressTracker
 from ..parser.context_models import DirectoryType
 from .models import FaultInstance
 from .pattern_matcher import PatternMatcher
+from .processors.log_utils import parse_timestamp, extract_timeout_from_lines
 
 
 class FaultDetector:
@@ -36,9 +38,6 @@ class FaultDetector:
 
     负责在日志条目和文件中检测故障。
     """
-
-    # 时间戳正则表达式
-    TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
 
     # 通信域名称提取正则表达式（从故障日志中提取）
     # 支持三种模式（分开编译，按需匹配）：
@@ -115,17 +114,23 @@ class FaultDetector:
         self,
         process_id: str,
         worker_id: str = None,
-        comm_domain_identifier: str = None
+        comm_domain_identifier: str = None,
+        file_text: str = None
     ) -> Optional[CommunicationInfo]:
         """
         获取指定进程的通信域信息
 
-        只匹配通信域id是comm_domain_identifier子串的通信域
+        匹配策略：
+        1. 优先通过通信域identifier子串匹配
+        2. 如果未匹配到，通过超时时间 fallback 匹配：
+           从 file_text 提取 timeout 日志行的时间戳，减去 timeout 值得到通信域预期创建时间，
+           与 comm_info.timestamp 差值不超过 1s 则匹配
 
         Args:
             process_id: 进程号
             worker_id: worker ID（可选）
             comm_domain_identifier: 通信域名称/标识符（可选）
+            file_text: 日志文件文本（用于 timeout fallback 匹配，可选）
 
         Returns:
             Optional[CommunicationInfo]: 通信域信息
@@ -141,13 +146,56 @@ class FaultDetector:
         if not comm_info_list:
             return None
 
-        # 只匹配通信域id是comm_domain_identifier子串的通信域
+        # 优先通过通信域identifier子串匹配
         if comm_domain_identifier:
             for comm_info in comm_info_list:
                 if comm_info.identifier in comm_domain_identifier:
                     return comm_info
 
-        # 如果没有匹配到通信域id，返回None
+        # fallback: 通过超时时间匹配
+        return self._match_comm_info_by_timeout(comm_info_list, file_text)
+
+    def _match_comm_info_by_timeout(
+        self,
+        comm_info_list: list,
+        file_text: str
+    ) -> Optional[CommunicationInfo]:
+        """
+        通过超时时间匹配通信域信息
+
+        从 file_text 提取 timeout 日志行的时间戳，减去 timeout 值得到通信域预期创建时间，
+        与 comm_info.timestamp 差值不超过 1s 则匹配。
+
+        Args:
+            comm_info_list: 通信域信息列表
+            file_text: 日志文件文本
+
+        Returns:
+            匹配的通信域信息，未匹配返回 None
+        """
+        if not file_text:
+            return None
+
+        timeout_info = extract_timeout_from_lines(file_text.splitlines())
+        if not timeout_info:
+            return None
+
+        timeout_value, timeout_raw_line = timeout_info
+        timeout_timestamp = parse_timestamp(timeout_raw_line)
+        if timeout_timestamp is None:
+            return None
+
+        expected_time = timeout_timestamp - timedelta(seconds=timeout_value)
+
+        for comm_info in comm_info_list:
+            if not comm_info.timestamp:
+                continue
+            comm_ts = parse_timestamp(comm_info.timestamp)
+            if comm_ts is None:
+                continue
+            if abs((comm_ts - expected_time).total_seconds()) <= 1:
+                return comm_info
+
         return None
 
     def detect_in_entry(
@@ -188,14 +236,15 @@ class FaultDetector:
             comm_info = self._get_comm_info_for_process(
                 entry.process_id,
                 entry.worker_id,
-                comm_domain_identifier
+                comm_domain_identifier,
+                file_text
             )
 
         # 为每个匹配创建故障实例
         faults = []
         for category, pattern_obj, match in matches:
             fault = self._create_fault_instance(
-                category, pattern_obj, match, entry, comm_info, file_text
+                category, pattern_obj, entry, comm_info, file_text
             )
             faults.append(fault)
 
@@ -205,7 +254,6 @@ class FaultDetector:
         self,
         category: FaultCategory,
         pattern_obj,
-        match,
         entry: LogEntry,
         comm_info: Optional[CommunicationInfo],
         file_text: str = None
@@ -216,7 +264,6 @@ class FaultDetector:
         Args:
             category: 故障分类
             pattern_obj: 编译后的正则表达式对象
-            match: 正则匹配结果
             entry: 日志条目
             comm_info: 通信域信息
             file_text: 整个文件的文本（用于 extract_all: true 的变量提取）

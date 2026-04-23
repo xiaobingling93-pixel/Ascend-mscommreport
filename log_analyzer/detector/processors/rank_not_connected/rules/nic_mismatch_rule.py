@@ -21,12 +21,12 @@
 """
 from typing import List
 
-from ...base import DecisionRule
+from ..rule_base import RankNotConnectedRule
 from ....models import FaultContext
-from ..collectors import FaultGroupChecker, NicInfoCollector, NicInfo
+from ..collectors import NicInfoCollector, NicInfo, FaultGroupChecker
 
 
-class NicMismatchRule(DecisionRule):
+class NicMismatchRule(RankNotConnectedRule):
     """
     网卡不一致规则
 
@@ -66,39 +66,40 @@ class NicMismatchRule(DecisionRule):
         ref_comm_info = ref_comm_item.comm_info
         ref_identifier = ref_comm_info.identifier
 
-        # 获取 rank0 的 debug plog 日志文本，用于提取未连接的 rankId
-        log_text = FaultGroupChecker.get_log_text(context, ref_identifier)
-
-        unconnected_rank_ids = FaultGroupChecker.get_unconnected_rank_ids(
-            context, ref_identifier, ref_comm_item.process_id, ref_comm_info, log_text
-        )
+        unconnected_rank_ids = RankNotConnectedRule.get_unconnected_rank_ids(key)
 
         if not unconnected_rank_ids:
             return False
 
         # 获取 rank0 的网卡类别
-        server_nic_info = self._get_nic_info(context, ref_identifier, 0)
-        if not server_nic_info:
+        server_result = self._get_nic_info(context, ref_identifier, 0)
+        if not server_result:
             return False
 
+        server_nic_info, server_log_file, server_log_line = server_result
         server_rank_id = 0
 
         # 遍历未连接的 rank，找到第一个网卡类别与 rank0 不同的即匹配
         for rank_id in unconnected_rank_ids:
-            client_nic_info = self._get_nic_info(context, ref_identifier, rank_id)
-            if client_nic_info and client_nic_info.nic_class != server_nic_info.nic_class:
+            client_result = self._get_nic_info(context, ref_identifier, rank_id)
+            if client_result and client_result[0].nic_class != server_nic_info.nic_class:
+                client_nic_info, client_log_file, client_log_line = client_result
                 # 缓存信息供 generate_solution 使用
                 context.set('server_rank_id', server_rank_id)
                 context.set('server_nic_info', server_nic_info)
+                context.set('server_log_file', server_log_file)
+                context.set('server_log_line', server_log_line)
                 context.set('client_rank_id', rank_id)
                 context.set('client_nic_info', client_nic_info)
+                context.set('client_log_file', client_log_file)
+                context.set('client_log_line', client_log_line)
                 return True
 
         return False
 
     def _get_nic_info(
         self, context: FaultContext, identifier: str, rank_id: int
-    ) -> NicInfo:
+    ):
         """
         获取指定 rank 的网卡信息
 
@@ -110,16 +111,16 @@ class NicMismatchRule(DecisionRule):
             rank_id: rank ID
 
         Returns:
-            NicInfo: 网卡信息，如果未找到则返回 None
+            (NicInfo, log_file_path, nic_log_line) 元组，未找到返回 None
         """
         plog_files = context.get_run_plog_path(identifier, rank_id)
         if not plog_files:
             return None
 
         for plog_file in plog_files:
-            nic_info = self.nic_collector._extract_nic_from_logs(plog_file)
-            if nic_info:
-                return nic_info
+            result = self.nic_collector._extract_nic_from_logs(plog_file)
+            if result:
+                return result
 
         return None
 
@@ -135,8 +136,12 @@ class NicMismatchRule(DecisionRule):
         """
         server_rank_id = context.get('server_rank_id')
         server_nic_info = context.get('server_nic_info')
+        server_log_file = context.get('server_log_file')
+        server_log_line = context.get('server_log_line')
         client_rank_id = context.get('client_rank_id')
         client_nic_info = context.get('client_nic_info')
+        client_log_file = context.get('client_log_file')
+        client_log_line = context.get('client_log_line')
 
         if not server_nic_info or not client_nic_info:
             return ["网卡配置不一致，请检查各节点的网卡配置"]
@@ -146,4 +151,17 @@ class NicMismatchRule(DecisionRule):
             f"rank {server_rank_id}的网卡是{server_nic_info.nic_full}",
             f"rank {client_rank_id}的网卡是{client_nic_info.nic_full}",
             "请通过HCCL_SOCKET_IFNAME环境变量进行统一配置",
+            "",
+            "分析过程如下:",
+            f"rank[{client_rank_id}]的日志文件是:",
+            client_log_file,
+            "",
+            "网卡相关日志内容为:",
+            client_log_line,
+            "",
+            f"rank[{server_rank_id}]的日志文件是:",
+            server_log_file,
+            "",
+            "网卡相关日志内容为:",
+            server_log_line,
         ]

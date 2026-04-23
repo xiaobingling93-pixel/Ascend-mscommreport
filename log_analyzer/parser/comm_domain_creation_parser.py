@@ -81,6 +81,9 @@ class CommDomainCreationParser:
             r'Entry-HcclCommInitRootInfoConfigInner:ranks\[(\d+)\], rank\[(\d+)\], rootinfo: host ip\[([\d.]+)\] port\[(\d+)\](?: nicDeploy\[\d+\])? identifier\[([^\]]+)\](?:, deviceLogicId\[(\d+)\])?'
         ),
         re.compile(
+            r'Entry-HcclCommInitRootInfo:ranks\[(\d+)\], rank\[(\d+)\], rootinfo: host ip\[([\d.]+)\] port\[(\d+)\](?: nicDeploy\[\d+\])? identifier\[([^\]]+)\](?:, deviceLogicId\[(\d+)\])?'
+        ),
+        re.compile(
             r'hcclCommInitInfo:commId\[[^\]]+\], rank\[(\d+)\], totalRanks\[(\d+)\], serverId\[([\d.]+)\]\s*,\s*deviceType\[\d+\]\s*,\s*logicDevId\[(\d+)\], identifier\[([^\]]+)\]'
         )
     ]
@@ -241,7 +244,7 @@ class CommDomainCreationParser:
             # 遍历所有日志条目，查找通信域创建信息
             for entry in log_file.entries:
                 # 检查是否匹配新格式 hcclCommInitInfo
-                hccl_comm_init_match = self.COMM_CREATION_PATTERNS[2].search(entry.raw_line)
+                hccl_comm_init_match = self.COMM_CREATION_PATTERNS[3].search(entry.raw_line)
                 if hccl_comm_init_match:
                     creation_info = self._create_creation_info_from_hccl_comm_init_match(
                         hccl_comm_init_match, entry.raw_line, log_file.path, process_id
@@ -253,8 +256,8 @@ class CommDomainCreationParser:
                         comm_creation_by_process[key].append(creation_info)
                     continue  # 已经匹配到新格式，不再检查旧格式
 
-                # 检查旧格式（Entry-HcclCommInitRootInfoInner 或 Entry-HcclCommInitRootInfoConfigInner）
-                for pattern in self.COMM_CREATION_PATTERNS[:2]:
+                # 检查旧格式（Entry-HcclCommInitRootInfoInner / ConfigInner / 非Inner）
+                for pattern in self.COMM_CREATION_PATTERNS[:3]:
                     match = pattern.search(entry.raw_line)
                     if match:
                         creation_info = self._create_creation_info_from_match(

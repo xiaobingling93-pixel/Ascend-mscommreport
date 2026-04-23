@@ -21,12 +21,12 @@
 """
 from typing import List
 
-from ...base import DecisionRule
+from ..rule_base import RankNotConnectedRule
 from ....models import FaultContext
 from ..collectors import FaultGroupChecker
 
 
-class NoCommInterfaceRule(DecisionRule):
+class NoCommInterfaceRule(RankNotConnectedRule):
     """
     未下发通信域创建接口规则
 
@@ -69,13 +69,7 @@ class NoCommInterfaceRule(DecisionRule):
         ref_comm_info = ref_comm_item.comm_info
         ref_identifier = ref_comm_info.identifier
 
-        # 获取日志文本
-        log_text = FaultGroupChecker.get_log_text(context, ref_identifier)
-
-        # 获取未连接的 rankId
-        unconnected_rank_ids = FaultGroupChecker.get_unconnected_rank_ids(
-            context, ref_identifier, ref_comm_item.process_id, ref_comm_info, log_text
-        )
+        unconnected_rank_ids = RankNotConnectedRule.get_unconnected_rank_ids(key)
 
         if not unconnected_rank_ids:
             return False
@@ -91,6 +85,7 @@ class NoCommInterfaceRule(DecisionRule):
         if missing_comm_rank_ids:
             # 缓存未下发通信域创建接口的 rankId 供 generate_solution 使用
             context.set('missing_comm_rank_ids', missing_comm_rank_ids)
+            context.set('ref_identifier', ref_identifier)
             return True
 
         return False
@@ -106,14 +101,19 @@ class NoCommInterfaceRule(DecisionRule):
             解决方案文本列表
         """
         missing_rank_ids = context.get('missing_comm_rank_ids')
+        ref_identifier = context.get('ref_identifier')
 
         if not missing_rank_ids:
             return ["部分 rank 未连接上 server 节点，且未下发通信域创建接口"]
 
         # 格式化 rankId 列表
         rank_ids_str = ",".join(map(str, sorted(missing_rank_ids)))
+        example_rank_id = sorted(missing_rank_ids)[0]
 
         return [
             f"rank[{rank_ids_str}]未连接上server节点，且未下发通信域创建接口",
             "请从业务上排查以上rank未下发通信域创建接口的原因",
+            "",
+            "分析过程如下:",
+            f"以rank[{example_rank_id}]为例，执行grep -rn \"{ref_identifier}\" | grep \"SetupAgent\" | grep \"rank[{example_rank_id}]\"后的结果为空，说明该rank未下发通信域创建接口",
         ]

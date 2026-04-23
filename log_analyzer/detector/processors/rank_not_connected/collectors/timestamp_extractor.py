@@ -19,9 +19,10 @@
 
 负责从日志中提取时间戳信息。
 """
-from typing import Optional
+from typing import Optional, Tuple
 from datetime import datetime
-import re
+
+from ...log_utils import parse_timestamp
 
 
 class TimestampExtractor:
@@ -46,51 +47,31 @@ class TimestampExtractor:
         Returns:
             datetime对象，如果未找到则返回 None
         """
-        # 匹配时间戳格式：YYYY-M-D-HH:MM:SS.mmm.mmm 或 YYYY-MM-DD-HH:MM:SS.mmm.mmm
-        # 例如：2025-9-11-01:20:11.205.210 或 2025-03-14-15:38:49.625.442
-        pattern = r'(\d{4})-(\d{1,2})-(\d{1,2})-(\d{2}):(\d{2}):(\d{2})\.(\d+\.\d+)'
-        match = re.search(pattern, log_line)
-
-        if match:
-            try:
-                year, month, day, hour, minute, second, microsecond = match.groups()
-                # 处理微秒部分（格式：mmm.mmm，即毫秒.微秒）
-                # 例如：205.210 表示 205毫秒 + 210微秒 = 205210微秒
-                if '.' in microsecond:
-                    parts = microsecond.split('.')
-                    # 第一部分是毫秒，第二部分是微秒，直接拼接后取前6位
-                    microsecond = (parts[0] + parts[1])[:6]
-
-                timestamp_str = f"{year}-{month.zfill(2)}-{day.zfill(2)} {hour}:{minute}:{second}.{microsecond}"
-                return datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
-            except (ValueError, TypeError):
-                pass
-
-        return None
+        return parse_timestamp(log_line)
 
     @staticmethod
-    def get_last_line_timestamp(plog_file: str) -> Optional[datetime]:
+    def get_last_line_timestamp_with_line(plog_file: str) -> Tuple[Optional[datetime], str]:
         """
-        获取日志文件中最后一条日志的时间戳
+        获取日志文件中最后一条日志的时间戳和原始日志行
 
         Args:
             plog_file: plog文件路径
 
         Returns:
-            最后一条日志的时间戳，如果未找到则返回 None
+            (最后一条日志的时间戳, 原始日志行)，如果未找到时间戳则返回 (None, "")
         """
         try:
             with open(plog_file, 'r', encoding='utf-8', errors='ignore') as f:
                 lines = f.readlines()
                 if not lines:
-                    return None
+                    return None, ""
 
                 # 从后往前找第一个有时间戳的行
                 for line in reversed(lines):
                     timestamp = TimestampExtractor.extract_from_log_line(line)
                     if timestamp:
-                        return timestamp
+                        return timestamp, line.strip()
         except Exception:
             pass
 
-        return None
+        return None, ""

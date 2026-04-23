@@ -22,6 +22,8 @@ Listen 信息收集器
 import re
 from typing import List, Tuple
 
+from ...log_utils import TIMESTAMP_PATTERN
+
 
 class ListenInfoCollector:
     """Listen 信息收集器"""
@@ -37,7 +39,7 @@ class ListenInfoCollector:
     LISTEN_PORT_PATTERN = re.compile(r'port\[(\d+)\]', re.IGNORECASE)
 
     # 日志时间戳匹配模式
-    TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
+    TIMESTAMP_PATTERN = TIMESTAMP_PATTERN
 
     @staticmethod
     def extract_listening_info(plog_paths: List[str], dest_ip: str, error_timestamp: str = None) -> List[Tuple[str, str]]:

@@ -22,6 +22,8 @@ LINK_ERROR_INFO 收集器
 import re
 from typing import List, Optional, Tuple, NamedTuple
 
+from ...log_utils import TIMESTAMP_PATTERN
+
 
 class LinkInfo(NamedTuple):
     """建链信息"""
@@ -43,15 +45,15 @@ class LinkInfoCollector:
     # 例如: |  172.27.51.26(24)   |  16666  |   172.27.51.2(0)   |  0  |  client  | time out |   ENABLE  | LinkInfo
     _IP_RANK_PATTERN = re.compile(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\((\d+)\)')
 
-    # createLink para 格式中各字段的小正则
+    # Transport init error 格式中各字段的小正则
     # 例如: createLink para:rank[24]-localUserrank[24]-localIpAddr[172.27.51.26/0], remoteRank[0]-remoteUserrank[0]-remoteIpAddr[172.27.51.2/0], ...
     _RANK_PATTERN = re.compile(r'localUserrank\[(\d+)\]')
     _LOCAL_IP_PATTERN = re.compile(r'localIpAddr\[(\d+\.\d+\.\d+\.\d+)')
     _REMOTE_RANK_PATTERN = re.compile(r'remoteUserrank\[(\d+)\]')
-    _REMOTE_IP_PATTERN = re.compile(r'remoteIpAddr\[(\d+\.\d+\.\d+\.\d+)')
+    _REMOTE_IP_PATTERN = re.compile(r'remote_?[Ii]p_?[Aa]ddr\[(\d+\.\d+\.\d+\.\d+)')
 
     # 日志时间戳匹配模式
-    TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
+    TIMESTAMP_PATTERN = TIMESTAMP_PATTERN
 
     @staticmethod
     def _parse_link_info_from_line(line: str, groups: tuple) -> LinkInfo:
@@ -86,7 +88,7 @@ class LinkInfoCollector:
 
         支持两种日志格式：
         1. LINK_ERROR_INFO 表格格式（含端口号和角色信息）
-        2. Transport init error / createLink para 格式（无端口号，角色为 client）
+        2. Transport init error 格式（无端口号，角色为 client）
 
         Args:
             file_path: 日志文件路径
@@ -116,8 +118,8 @@ class LinkInfoCollector:
                                     my_role,
                                 ))
 
-                    # 匹配 createLink para 格式
-                    if 'createLink para' in line:
+                    # 匹配 Transport init error 格式
+                    if 'Transport init error' in line:
                         m_rank = LinkInfoCollector._RANK_PATTERN.search(line)
                         m_local_ip = LinkInfoCollector._LOCAL_IP_PATTERN.search(line)
                         m_remote_rank = LinkInfoCollector._REMOTE_RANK_PATTERN.search(line)

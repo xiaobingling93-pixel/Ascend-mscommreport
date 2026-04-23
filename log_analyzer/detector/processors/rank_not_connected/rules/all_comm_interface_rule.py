@@ -22,12 +22,12 @@
 import re
 from typing import List
 
-from ...base import DecisionRule
+from ..rule_base import RankNotConnectedRule
 from ....models import FaultContext
 from ..collectors import FaultGroupChecker
 
 
-class AllCommInterfaceRule(DecisionRule):
+class AllCommInterfaceRule(RankNotConnectedRule):
     """
     所有未连接 rank 都有通信域创建信息规则
 
@@ -70,13 +70,7 @@ class AllCommInterfaceRule(DecisionRule):
         ref_comm_info = ref_comm_item.comm_info
         ref_identifier = ref_comm_info.identifier
 
-        # 获取日志文本
-        log_text = FaultGroupChecker.get_log_text(context, ref_identifier)
-
-        # 获取未连接的 rankId
-        unconnected_rank_ids = FaultGroupChecker.get_unconnected_rank_ids(
-            context, ref_identifier, ref_comm_item.process_id, ref_comm_info, log_text
-        )
+        unconnected_rank_ids = RankNotConnectedRule.get_unconnected_rank_ids(key)
 
         if not unconnected_rank_ids:
             return False
@@ -95,6 +89,7 @@ class AllCommInterfaceRule(DecisionRule):
             # 缓存 ip 和端口号供 generate_solution 使用
             context.set('server_ip', ref_comm_info.host_ip)
             context.set('server_port', ref_comm_info.port)
+            context.set('key', key)
 
             # 删除同通信域的 agent_socket_timeout 故障组
             self._remove_agent_socket_timeout(context, ref_identifier)
@@ -141,11 +136,21 @@ class AllCommInterfaceRule(DecisionRule):
 
         # 使用 telnet 命令排查网络问题
         if server_ip and server_port:
-            return [
+            result = [
                 f"rank[{rank_ids_str}]未连接上server节点，且都下发了通信域创建接口，请执行for n in {{{rank_ids_str}}}; do hccn_tool -i $n -link -g ; done 或者 telnet {server_ip} {server_port}排查是否是网络问题，或者联系HCCL专家定位"
             ]
         else:
             # 如果无法获取 ip 或端口，使用原始提示
-            return [
+            result = [
                 f"rank[{rank_ids_str}]未连接上server节点，且都下发了通信域创建接口，请执行for n in {{{rank_ids_str}}}; do hccn_tool -i $n -link -g ; done排查网络问题，或者联系HCCL专家定位"
             ]
+
+        # 拼接分析过程
+        key = context.get('key')
+        if key:
+            analysis = self._build_analysis(key, unconnected_rank_ids, context)
+            if analysis:
+                result.append("")
+                result.extend(analysis)
+
+        return result

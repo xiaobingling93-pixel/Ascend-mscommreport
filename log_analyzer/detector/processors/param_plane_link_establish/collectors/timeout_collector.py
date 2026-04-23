@@ -19,8 +19,9 @@
 
 从日志文件中提取建链超时时间信息和时间戳。
 """
-import re
 from typing import List, Optional, Tuple
+
+from ...log_utils import extract_timeout_from_files
 
 
 class TimeoutCollector:
@@ -29,9 +30,6 @@ class TimeoutCollector:
 
     从日志文件中提取 wait socket establish timeout 信息及其时间戳。
     """
-
-    # timeout 值提取正则
-    TIMEOUT_VALUE_PATTERN = re.compile(r'timeout\[(\d+)\s*s?\]', re.IGNORECASE)
 
     @staticmethod
     def extract_timeout_log_info(source_files: List[str]) -> Optional[Tuple[int, str]]:
@@ -44,17 +42,4 @@ class TimeoutCollector:
         Returns:
             (timeout, raw_line) 如果找到，否则返回 None
         """
-        for source_file in source_files:
-            try:
-                with open(source_file, 'r', encoding='utf-8', errors='ignore') as f:
-                    for line in f:
-                        if 'timeout[' not in line:
-                            continue
-                        match = TimeoutCollector.TIMEOUT_VALUE_PATTERN.search(line)
-                        if match:
-                            timeout = int(match.group(1))
-                            return (timeout, line.rstrip())
-            except Exception:
-                continue
-
-        return None
+        return extract_timeout_from_files(source_files)

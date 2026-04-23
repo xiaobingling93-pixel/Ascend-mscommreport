@@ -21,6 +21,8 @@ Socket请求检查器
 """
 from typing import List
 
+from .socket_event_time_finder import SocketEventTimeFinder
+
 
 class SocketRequestChecker:
     """
@@ -54,18 +56,11 @@ class SocketRequestChecker:
         日志样例：
         [INFO]HCCP(350697,python):2025-9-11-01:20:11.205.210 [op_base.cc:560][350697]ra_socket_batch_connect(770) : Input parameters: [0]th, phy_id[6], local_ip[172.222.8.248], remote_ip[172.16.1.248], tag[172.16.1.148%eth0_64000_0_1757081746616696_640000]
         """
-        for plog_file in plog_files:
-            try:
-                with open(plog_file, 'r', encoding='utf-8', errors='ignore') as f:
-                    for line in f:
-                        if 'ra_socket_batch_connect' not in line and 'RaSocketBatchConnect' not in line:
-                            continue
-                        if identifier not in line:
-                            continue
-                        if f'remote_ip[{host_ip}]' not in line:
-                            continue
-                        return True
-            except Exception:
+        for line in SocketEventTimeFinder.iter_lines_with_keyword(plog_files, SocketEventTimeFinder.SOCKET_CONNECT_KEYWORDS):
+            if identifier not in line:
                 continue
+            if f'remote_ip[{host_ip}]' not in line:
+                continue
+            return True
 
         return False

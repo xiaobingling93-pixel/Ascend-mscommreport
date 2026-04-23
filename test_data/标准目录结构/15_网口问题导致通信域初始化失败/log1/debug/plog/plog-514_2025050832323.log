@@ -1,4 +1,4 @@
-[WARNING] HCCL(514,python):2025-05-08-01:19:44.105.531 [hccl_socket.cc:355] [2794][Get][Connection] topo exchange server get socket timeout! timeout[59 s]
+[WARNING] HCCL(514,python):2025-05-08-01:10:44.099.910 [hccl_socket.cc:355] [2794][Get][Connection] topo exchange server get socket timeout! timeout[59 s]
 [ERROR] HCCL(514,python):2025-05-08-01:19:45.099.910 [topoinfo_exchange_server.cc:114] [2794][Get][Connection] topo exchange server get socket timeout! timeout[600 s]
 [ERROR] HCCL(514,python):2025-05-08-01:19:45.100.000 [topoinfo_exchange_server.cc:115] [2794][Get][Connection] tag[10.20.0.111%bond1_30003_3_1746637785099440310]
 [ERROR] HCCL(514,python):2026-05-08-01:19:45.111.856 [adapter_hccp.cc:1337] [2795][Recv][RaSocket]errNo[0x0000000005000013] Wait timeout for sockets recv, data[0xdf25ef7fbaf8], size[4 Byte], recvSize[0 Byte], Peerrank did not send the data in time. Check whether the peerrank is abnormal.

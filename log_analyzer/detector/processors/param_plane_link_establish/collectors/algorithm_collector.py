@@ -23,6 +23,8 @@ import re
 from collections import Counter
 from typing import Dict, List, Optional
 
+from ...log_utils import TIMESTAMP_PATTERN
+
 
 class AlgorithmCollector:
     """算法选择统计收集器"""
@@ -31,7 +33,7 @@ class AlgorithmCollector:
     ALGORITHM_PATTERN = re.compile(r'is algName \[([^\]]+)\]')
 
     # 时间戳匹配模式
-    TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
+    TIMESTAMP_PATTERN = TIMESTAMP_PATTERN
 
     @staticmethod
     def _count_algorithms_in_file(file_path: str, min_timestamp: Optional[str] = None) -> Counter:

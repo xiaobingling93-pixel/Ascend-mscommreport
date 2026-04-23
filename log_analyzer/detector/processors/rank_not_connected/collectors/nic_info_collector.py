@@ -41,7 +41,7 @@ class NicInfoCollector:
     # 查找网卡的正则表达式
     FIND_NIC_PATTERN = re.compile(r'find\s+nic\[([^\]]+)\]')
 
-    def _extract_nic_from_logs(self, log_file_path: str) -> Optional[NicInfo]:
+    def _extract_nic_from_logs(self, log_file_path: str) -> Optional[tuple]:
         """
         从日志文件中提取网卡信息
 
@@ -49,7 +49,7 @@ class NicInfoCollector:
             log_file_path: 日志文件路径
 
         Returns:
-            NicInfo: 网卡信息
+            (NicInfo, log_file_path, nic_log_line) 元组，未找到返回 None
         """
         try:
             with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -68,11 +68,34 @@ class NicInfoCollector:
             else:
                 nic_class = nic_full
 
-            return NicInfo(
-                nic_full=nic_full,
-                nic_class=nic_class
+            # 提取匹配行的完整日志行
+            nic_log_line = self._extract_matching_line(content, nic_match.start())
+
+            return (
+                NicInfo(nic_full=nic_full, nic_class=nic_class),
+                log_file_path,
+                nic_log_line
             )
 
         except Exception:
             return None
+
+    @staticmethod
+    def _extract_matching_line(content: str, match_pos: int) -> str:
+        """
+        从日志内容中提取匹配位置所在的完整日志行
+
+        Args:
+            content: 日志文本
+            match_pos: 匹配位置的字符偏移量
+
+        Returns:
+            匹配位置的完整日志行
+        """
+        # 找到匹配位置所在行的起止位置
+        line_start = content.rfind('\n', 0, match_pos) + 1
+        line_end = content.find('\n', match_pos)
+        if line_end == -1:
+            line_end = len(content)
+        return content[line_start:line_end].strip()
 

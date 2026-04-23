@@ -23,7 +23,8 @@ from typing import List
 
 from ..base import DecisionRule
 from ...models import FaultContext
-from .rules import NicMismatchRule, NoCommInterfaceRule, AllCommInterfaceRule, CommInitTimeoutRule, RootNodeNotListeningRule, ClientNotInitiateSocketRule, ServerClosedPortRule, ServerProcessExitRule, LargeClusterRule
+from .rule_base import RankNotConnectedRule
+from .rules import NicMismatchRule, NoCommInterfaceRule, AllCommInterfaceRule, LinkWindowNoOverlapRule, RootNodeNotListeningRule, ClientNotInitiateSocketRule, ServerProcessExitRule, LargeClusterRule
 
 
 class RankNotConnectedDecisionEngine:
@@ -44,9 +45,8 @@ class RankNotConnectedDecisionEngine:
             NoCommInterfaceRule(priority=20),  # 未下发通信域创建接口
             RootNodeNotListeningRule(priority=21),  # Root节点未发起socket监听
             ClientNotInitiateSocketRule(priority=22),  # Client未发起socket请求
-            CommInitTimeoutRule(priority=30),  # 通信域初始化超时下发时间超过设定时间
-            ServerClosedPortRule(priority=31),  # Server节点关闭端口监听
-            ServerProcessExitRule(priority=32),  # Server节点进程退出
+            ServerProcessExitRule(priority=30),  # Server节点进程退出
+            LinkWindowNoOverlapRule(priority=31),  # 建链时间窗口无交集
             LargeClusterRule(priority=33),  # 大集群场景
             AllCommInterfaceRule(priority=40),  # 所有未连接 rank 都有通信域创建信息
         ]
@@ -65,14 +65,23 @@ class RankNotConnectedDecisionEngine:
             context: 故障分析上下文
             key: 当前处理的故障组 key
         """
+        # 预准备公共数据
+        RankNotConnectedRule.prepare_unconnected_rank_ids(context, key)
+        RankNotConnectedRule.prepare_listen_info(context, key)
+        RankNotConnectedRule.prepare_connect_info(context, key)
+        RankNotConnectedRule.prepare_process_exit_ts(context, key)
+        RankNotConnectedRule.prepare_timeout_info(context, key)
+
         for rule in self._rules:
             # 尝试匹配规则
             if rule.match(context, key):
                 # 规则匹配，处理该规则的特殊逻辑
                 rule.apply(context, key)
-                # 清空缓存，避免影响其他 fault group 的处理
                 context.extended_info.clear()
+                RankNotConnectedRule.clear_cache(key)
                 return
             else:
-                # 没匹配上，也要清空该 rule 在 match 过程中可能设置的缓存
                 context.extended_info.clear()
+
+        # 所有规则都未匹配，清理基类缓存
+        RankNotConnectedRule.clear_cache(key)

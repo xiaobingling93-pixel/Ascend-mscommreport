@@ -23,12 +23,14 @@ import re
 from typing import Dict, List, Optional
 from collections import Counter
 
+from ...log_utils import TIMESTAMP_PATTERN
+
 
 class EntryCollector:
     """通信算子执行次数收集器"""
 
     # 时间戳匹配模式
-    TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
+    TIMESTAMP_PATTERN = TIMESTAMP_PATTERN
 
     @staticmethod
     def count_entry_operators_from_paths(file_paths: List[str], min_timestamp: Optional[str] = None) -> Dict[str, int]:

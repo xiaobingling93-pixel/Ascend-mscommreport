@@ -22,6 +22,8 @@ Connect 信息收集器
 import re
 from typing import List, Optional, Tuple
 
+from ...log_utils import TIMESTAMP_PATTERN
+
 
 class ConnectInfoCollector:
     """Connect 信息收集器"""
@@ -32,7 +34,7 @@ class ConnectInfoCollector:
     TAG_PATTERN = re.compile(r'tag\[([^\]]+)\]', re.IGNORECASE)
 
     # 日志时间戳匹配模式
-    TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
+    TIMESTAMP_PATTERN = TIMESTAMP_PATTERN
 
     @staticmethod
     def extract_connect_info(

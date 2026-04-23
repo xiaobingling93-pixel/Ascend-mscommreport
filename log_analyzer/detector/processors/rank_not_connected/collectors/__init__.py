@@ -22,7 +22,6 @@
 
 from .nic_info_collector import NicInfoCollector, NicInfo
 from .rank_extractor import RankIdExtractor
-from .timeout_collector import TimeoutCollector
 from .socket_request_collector import SocketRequestChecker
 from .timestamp_extractor import TimestampExtractor
 from .socket_event_time_finder import SocketEventTimeFinder
@@ -32,7 +31,6 @@ __all__ = [
     'NicInfoCollector',
     'NicInfo',
     'RankIdExtractor',
-    'TimeoutCollector',
     'SocketRequestChecker',
     'TimestampExtractor',
     'SocketEventTimeFinder',

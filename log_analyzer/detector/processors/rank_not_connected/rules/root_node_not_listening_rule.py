@@ -23,12 +23,13 @@ import re
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from ...base import DecisionRule
+from ..rule_base import RankNotConnectedRule
 from ....models import FaultContext
 from ..collectors import FaultGroupChecker
+from ...log_utils import TIMESTAMP_PATTERN, TIMEOUT_PATTERN, parse_timestamp
 
 
-class RootNodeNotListeningRule(DecisionRule):
+class RootNodeNotListeningRule(RankNotConnectedRule):
     """
     Root节点未发起socket监听规则
 
@@ -41,11 +42,10 @@ class RootNodeNotListeningRule(DecisionRule):
     """
 
     # 报错行匹配模式：提取 timeout 值
-    # 例如: [ERROR] HCCL(10261,python):2025-9-11-01:20:11.205.229 ... timeout[720 s]
-    TIMEOUT_PATTERN = re.compile(r'timeout\[(\d+)\s*s\]', re.IGNORECASE)
+    TIMEOUT_PATTERN = TIMEOUT_PATTERN
 
     # 日志时间戳匹配模式
-    TIMESTAMP_PATTERN = re.compile(r'(\d{4}-\d{1,2}-\d{1,2}-\d{2}:\d{2}:\d{2}\.\d+\.\d+)')
+    TIMESTAMP_PATTERN = TIMESTAMP_PATTERN
 
     # local_ip 提取模式
     LOCAL_IP_PATTERN = re.compile(r'local_ip\[([^\]]+)\]')
@@ -75,7 +75,7 @@ class RootNodeNotListeningRule(DecisionRule):
             return False
 
         # 从报错日志中提取报错时间和 timeout
-        error_ts, timeout_seconds = self._extract_error_info(current_group)
+        error_ts, timeout_seconds, timeout_log_line = self._extract_error_info(current_group)
         if not error_ts or timeout_seconds is None:
             return False
 
@@ -88,7 +88,7 @@ class RootNodeNotListeningRule(DecisionRule):
             return False
 
         # 在 rank0 的 run plog 中搜索匹配的 listen 行
-        found = self._find_listen_near_time(plog_files, expected_listen_time, host_ip)
+        found, listen_log_lines = self._find_listen_near_time(plog_files, expected_listen_time, host_ip)
 
         if not found:
             # root 节点没有在期望时间发起监听
@@ -96,6 +96,9 @@ class RootNodeNotListeningRule(DecisionRule):
                 if comm_item.comm_info:
                     context.set('root_not_listening_comm_info', comm_item.comm_info)
                     break
+            context.set('plog_files', plog_files)
+            context.set('listen_log_lines', listen_log_lines)
+            context.set('timeout_log_line', timeout_log_line)
             return True
 
         return False
@@ -108,7 +111,7 @@ class RootNodeNotListeningRule(DecisionRule):
             current_group: 故障组
 
         Returns:
-            (datetime, int) 报错时间和 timeout 秒数，提取失败返回 (None, None)
+            (datetime, int, str) 报错时间、timeout 秒数和原始日志行，提取失败返回 (None, None, None)
         """
         for line in current_group.all_raw_lines:
             if not line.startswith('[ERROR] HCCL'):
@@ -126,18 +129,18 @@ class RootNodeNotListeningRule(DecisionRule):
             if not ts_match:
                 continue
 
-            error_ts = self._parse_timestamp(ts_match.group(1))
+            error_ts = parse_timestamp(ts_match.group(1))
             if error_ts:
-                return error_ts, timeout_seconds
+                return error_ts, timeout_seconds, line.strip()
 
-        return None, None
+        return None, None, None
 
     def _find_listen_near_time(
         self,
         plog_files: List[str],
         expected_time: datetime,
         host_ip: str
-    ) -> bool:
+    ) -> tuple:
         """
         在 plog 文件中搜索在期望时间附近（误差不超过1s）的 listen 行
 
@@ -147,9 +150,10 @@ class RootNodeNotListeningRule(DecisionRule):
             host_ip: 通信域 IP
 
         Returns:
-            是否找到匹配的 listen 行
+            (bool, list) 是否找到匹配的 listen 行，以及所有监听相关日志行
         """
         tolerance = timedelta(seconds=1)
+        listen_log_lines = []
 
         for plog_path in plog_files:
             try:
@@ -158,12 +162,15 @@ class RootNodeNotListeningRule(DecisionRule):
                         if 'ra_socket_listen_start' not in line and 'RaSocketListenStart' not in line:
                             continue
 
+                        stripped_line = line.strip()
+                        listen_log_lines.append(stripped_line)
+
                         # 提取时间戳
-                        ts_match = self.TIMESTAMP_PATTERN.search(line)
+                        ts_match = self.TIMESTAMP_PATTERN.search(stripped_line)
                         if not ts_match:
                             continue
 
-                        line_ts = self._parse_timestamp(ts_match.group(1))
+                        line_ts = parse_timestamp(ts_match.group(1))
                         if not line_ts:
                             continue
 
@@ -172,48 +179,13 @@ class RootNodeNotListeningRule(DecisionRule):
                             continue
 
                         # 检查 local_ip 是否匹配
-                        ip_match = self.LOCAL_IP_PATTERN.search(line)
+                        ip_match = self.LOCAL_IP_PATTERN.search(stripped_line)
                         if ip_match and ip_match.group(1) == host_ip:
-                            return True
+                            return True, listen_log_lines
             except Exception:
                 continue
 
-        return False
-
-    @staticmethod
-    def _parse_timestamp(timestamp: str) -> Optional[datetime]:
-        """
-        解析时间戳
-
-        Args:
-            timestamp: 时间戳字符串，格式如 2025-9-11-01:20:11.205.229
-
-        Returns:
-            datetime 对象，解析失败返回 None
-        """
-        try:
-            parts = timestamp.replace('-', ' ').replace(':', ' ').replace('.', ' ').split()
-            if len(parts) >= 7:
-                year = int(parts[0])
-                month = int(parts[1])
-                day = int(parts[2])
-                hour = int(parts[3])
-                minute = int(parts[4])
-                second = int(parts[5])
-
-                if len(parts) >= 8:
-                    millisecond = int(parts[6])
-                    microsecond = int(parts[7])
-                    microsecond = millisecond * 1000 + microsecond
-                else:
-                    microsecond = int(parts[6])
-
-                microsecond = min(microsecond, 999999)
-                return datetime(year, month, day, hour, minute, second, microsecond)
-        except (ValueError, AttributeError, IndexError):
-            pass
-
-        return None
+        return False, listen_log_lines
 
     def generate_solution(self, context: FaultContext) -> List[str]:
         """
@@ -226,6 +198,9 @@ class RootNodeNotListeningRule(DecisionRule):
             解决方案文本列表
         """
         comm_info = context.get('root_not_listening_comm_info')
+        plog_files = context.get('plog_files', [])
+        listen_log_lines = context.get('listen_log_lines', [])
+        timeout_log_line = context.get('timeout_log_line')
 
         if not comm_info:
             return ["Root节点未发起socket监听"]
@@ -234,7 +209,26 @@ class RootNodeNotListeningRule(DecisionRule):
         host_ip = comm_info.host_ip or "未知"
         port = comm_info.port or "未知"
 
-        return [
+        result = [
             f"通信域[{identifier}]的root节点未发起socket监听，ip为{host_ip}，端口号为{port}",
-            "有可能是HCCP残留进程导致或者端口占用"
+            "有可能是HCCP残留进程导致或者端口占用",
+            "",
+            "分析过程如下:",
+            f"通信域[{identifier}]的root节点运行日志为:",
         ]
+
+        for plog_file in plog_files:
+            result.append(plog_file)
+
+        result.append("")
+        result.append("以上日志root节点监听相关如下:")
+        for log_line in listen_log_lines:
+            result.append(log_line)
+
+        result.append("")
+        result.append("设定的超时时间为:")
+        result.append(timeout_log_line if timeout_log_line else "未知")
+        result.append("")
+        result.append("根据以上内容可知root节点未在正确的时间段内发起端口监听")
+
+        return result

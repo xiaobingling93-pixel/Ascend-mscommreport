@@ -21,12 +21,12 @@
 """
 from typing import List
 
-from ...base import DecisionRule
+from ..rule_base import RankNotConnectedRule
 from ....models import FaultContext
 from ..collectors import FaultGroupChecker
 
 
-class LargeClusterRule(DecisionRule):
+class LargeClusterRule(RankNotConnectedRule):
     """
     大集群场景规则
 
@@ -64,6 +64,7 @@ class LargeClusterRule(DecisionRule):
         ref_comm_info = ref_comm_item.comm_info
 
         if ref_comm_info.ranks > self.LARGE_CLUSTER_THRESHOLD:
+            context.set('key', key)
             return True
 
         return False
@@ -78,9 +79,31 @@ class LargeClusterRule(DecisionRule):
         Returns:
             解决方案文本列表
         """
-        return [
+        current_group, ref_comm_item = FaultGroupChecker.get_ref_comm_info(context, context.get('key', ''))
+        identifier = ref_comm_item.comm_info.identifier if current_group else ''
+        unconnected_rank_ids = RankNotConnectedRule.get_unconnected_rank_ids(context.get('key', '')) or []
+
+        rank_ids_str = ','.join(str(r) for r in sorted(unconnected_rank_ids))
+
+        result = []
+        result.append(
+            f"在通信域{identifier}中rank[{rank_ids_str}]未连上server节点，"
+            "通信域初始化过程中行为符合预期，"
             "在大集群场景下，Master节点允许处理的并发建链数受Linux内核参数somaxconn与tcp_max_syn_backlog的限制，"
-            "如果somaxconn与tcp_max_syn_backlog取值较小会导致部分客户端概率性提前退出。",
-            "解决方案：通过sysctl -w net.core.somaxconn=65535和sysctl -w net.ipv4.tcp_max_syn_backlog=65535"
-            "调整连接数配置（所有机器的OS都需要配置，包括裸机、镜像环境等）",
-        ]
+            "如果somaxconn与tcp_max_syn_backlog取值较小会导致部分客户端概率性提前退出。"
+        )
+        result.append(
+            "请通过执行sysctl -w net.core.somaxconn=65535和sysctl -w net.ipv4.tcp_max_syn_backlog=65535"
+            "调整连接数配置（所有机器的OS都需要配置，包括裸机、镜像环境等）解决，"
+            "如果还是通信域初始化失败，则需要通过hccn_tool工具排查是否是网络问题"
+        )
+
+        # 拼接分析过程
+        key = context.get('key')
+        if key:
+            analysis = self._build_analysis(key, unconnected_rank_ids, context)
+            if analysis:
+                result.append("")
+                result.extend(analysis)
+
+        return result

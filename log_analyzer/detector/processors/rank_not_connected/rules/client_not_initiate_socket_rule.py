@@ -21,12 +21,13 @@ Client未发起socket请求规则
 """
 from typing import List
 
-from ...base import DecisionRule
+from ..rule_base import RankNotConnectedRule
 from ....models import FaultContext
 from ..collectors import SocketRequestChecker, FaultGroupChecker
+from ..collectors.socket_event_time_finder import SocketEventTimeFinder
 
 
-class ClientNotInitiateSocketRule(DecisionRule):
+class ClientNotInitiateSocketRule(RankNotConnectedRule):
     """
     Client未发起socket请求规则
 
@@ -68,19 +69,16 @@ class ClientNotInitiateSocketRule(DecisionRule):
         ref_comm_info = ref_comm_item.comm_info
         identifier = ref_comm_info.identifier
 
-        # 获取日志文本
-        log_text = FaultGroupChecker.get_log_text(context, identifier)
-
-        # 获取未连接的 rankId
-        unconnected_rank_ids = FaultGroupChecker.get_unconnected_rank_ids(
-            context, identifier, ref_comm_item.process_id, ref_comm_info, log_text
-        )
+        unconnected_rank_ids = RankNotConnectedRule.get_unconnected_rank_ids(key)
 
         if not unconnected_rank_ids:
             return False
 
         # 检查每个未连接的rank是否发起了socket请求
         ranks_without_socket = []
+        example_rank_plog_files = None
+        example_rank_grep_results = None
+
         for rank_id in unconnected_rank_ids:
             # 获取该rank的plog文件路径
             plog_files = context.get_run_plog_path(identifier, rank_id)
@@ -88,6 +86,9 @@ class ClientNotInitiateSocketRule(DecisionRule):
             if not plog_files:
                 # 没有找到plog文件，认为未发起socket请求
                 ranks_without_socket.append(rank_id)
+                if example_rank_plog_files is None:
+                    example_rank_plog_files = []
+                    example_rank_grep_results = []
                 continue
 
             # 检查plog文件中是否有socket请求
@@ -99,12 +100,22 @@ class ClientNotInitiateSocketRule(DecisionRule):
 
             if not has_socket:
                 ranks_without_socket.append(rank_id)
+                if example_rank_plog_files is None:
+                    example_rank_plog_files = plog_files
+                    example_rank_grep_results = [
+                        line for line in SocketEventTimeFinder.iter_lines_with_keyword(
+                            plog_files, SocketEventTimeFinder.SOCKET_CONNECT_KEYWORDS
+                        )
+                        if identifier in line
+                    ]
 
         # 如果存在未连接的rank未发起socket请求，则匹配上
         if ranks_without_socket:
-            # 缓存未发起socket请求的rankId列表供 generate_solution 使用
+            # 缓存供 generate_solution 使用
             context.set('ranks_without_socket', ranks_without_socket)
             context.set('identifier', identifier)
+            context.set('example_rank_plog_files', example_rank_plog_files)
+            context.set('example_rank_grep_results', example_rank_grep_results)
             return True
 
         return False
@@ -121,14 +132,30 @@ class ClientNotInitiateSocketRule(DecisionRule):
         """
         ranks_without_socket = context.get('ranks_without_socket')
         identifier = context.get('identifier')
+        example_rank_plog_files = context.get('example_rank_plog_files', [])
+        example_rank_grep_results = context.get('example_rank_grep_results', [])
 
         if not ranks_without_socket or not identifier:
             return ["部分rank未发起socket请求"]
 
         # 格式化rankId列表
         rank_ids_str = ",".join(map(str, sorted(ranks_without_socket)))
+        example_rank_id = sorted(ranks_without_socket)[0]
 
-        return [
+        result = [
             f"通信域初始化阶段，通信域[{identifier}]中rank[{rank_ids_str}]作为client未发起socket请求",
-            "请从业务上排查client未发起socket请求的原因"
+            "请从业务上排查client未发起socket请求的原因",
+            "",
+            "分析过程如下:",
+            f"以rank[{example_rank_id}]为例，该rank的运行日志为:",
         ]
+
+        for plog_file in example_rank_plog_files:
+            result.append(plog_file)
+
+        result.append("")
+        result.append(f"在以上日志文件中执行grep -rn \"{identifier}\" | grep ra_socket_batch_connect和grep -rn \"{identifier}\" | grep RaSocketBatchConnect结果如下:")
+        for grep_line in example_rank_grep_results:
+            result.append(grep_line)
+
+        return result

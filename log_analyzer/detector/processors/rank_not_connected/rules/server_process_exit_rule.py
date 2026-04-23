@@ -19,26 +19,25 @@ Server节点进程退出规则
 
 判断未连接的rank发起socket请求时，server节点进程是否已经退出。
 """
-from typing import List, Optional, Dict
-from datetime import datetime
+from typing import List
 
-from ...base import DecisionRule
+from ..rule_base import RankNotConnectedRule
 from ....models import FaultContext
-from ..collectors import SocketEventTimeFinder, TimestampExtractor, FaultGroupChecker
+from ..collectors import FaultGroupChecker
 
 
-class ServerProcessExitRule(DecisionRule):
+class ServerProcessExitRule(RankNotConnectedRule):
     """
     Server节点进程退出规则
 
     判断逻辑：
-    1. 找出root节点进程退出的时间点（通过获取rank0的plog文件中最后一条日志的时间戳）
-    2. 找出所有未连接的rankId
-    3. 获取未连接rank发起socket请求的时间点
-    4. 如果存在未连接的rank发起socket请求的时间点大于root节点进程退出的时间点，则匹配上
+    1. 从缓存获取 root 节点进程退出的时间点
+    2. 从缓存获取未连接的 rankId
+    3. 从缓存获取未连接 rank 发起 socket 请求的时间点
+    4. 如果存在未连接的 rank 发起 socket 请求的时间点大于 root 节点进程退出的时间点，则匹配上
     """
 
-    def __init__(self, priority: int = 32):
+    def __init__(self, priority: int = 30):
         """
         初始化Server节点进程退出规则
 
@@ -62,93 +61,38 @@ class ServerProcessExitRule(DecisionRule):
         if not current_group:
             return False
 
-        ref_comm_info = ref_comm_item.comm_info
-        identifier = ref_comm_info.identifier
+        identifier = ref_comm_item.comm_info.identifier
 
-        # 1. 找出root节点进程退出的时间点
-        server_exit_time = self._get_server_exit_time(identifier, context)
-
-        if not server_exit_time:
-            # 没有找到root节点进程退出的时间点
+        # 1. 从缓存获取 server 进程退出时间
+        process_exit_ts = RankNotConnectedRule.get_process_exit_ts(key)
+        server_exit_info = process_exit_ts.get('server')
+        if not server_exit_info or server_exit_info[0] is None:
             return False
+        server_exit_time = server_exit_info[0]
 
-        # 2. 获取未连接的rankId
-        log_text = FaultGroupChecker.get_log_text(context, identifier)
-
-        unconnected_rank_ids = FaultGroupChecker.get_unconnected_rank_ids(
-            context, identifier, ref_comm_item.process_id, ref_comm_info, log_text
-        )
-
+        unconnected_rank_ids = RankNotConnectedRule.get_unconnected_rank_ids(key)
         if not unconnected_rank_ids:
             return False
 
-        # 3. 检查每个未连接的rank发起socket请求的时间点
+        # 2. 从缓存获取 connect 信息，检查时间窗口
+        rank_all_connects = RankNotConnectedRule.get_connect_info(key)
+
         ranks_after_exit = []
-        rank_socket_times: Dict[int, datetime] = {}
 
         for rank_id in unconnected_rank_ids:
-            # 获取该rank的plog文件路径
-            plog_files = context.get_run_plog_path(identifier, rank_id)
+            all_connects = rank_all_connects.get(rank_id, [])
+            for connect_time, _ in all_connects:
+                if connect_time and connect_time > server_exit_time:
+                    ranks_after_exit.append(rank_id)
+                    break
 
-            if not plog_files:
-                continue
-
-            # 获取该rank发起socket请求的时间点
-            socket_time = SocketEventTimeFinder.find_socket_request_time(
-                plog_files,
-                identifier,
-                ref_comm_info.host_ip
-            )
-
-            if socket_time and socket_time > server_exit_time:
-                ranks_after_exit.append(rank_id)
-                rank_socket_times[rank_id] = socket_time
-
-        # 4. 如果存在未连接的rank发起socket请求的时间点大于root节点进程退出的时间点，则匹配上
         if ranks_after_exit:
-            # 缓存信息供 generate_solution 使用
             context.set('ranks_after_exit', ranks_after_exit)
             context.set('identifier', identifier)
-            context.set('server_exit_time', server_exit_time)
+            context.set('key', key)
             return True
 
         return False
-
-    def _get_server_exit_time(
-        self,
-        identifier: str,
-        context: FaultContext
-    ) -> Optional[datetime]:
-        """
-        获取root节点进程退出的时间点
-
-        通过获取rank0的plog文件中最后一条日志的时间戳。
-
-        Args:
-            identifier: 通信域标识符
-            context: 故障分析上下文
-
-        Returns:
-            进程退出的时间点，如果未找到则返回 None
-        """
-        # 获取rank0的plog文件路径
-        plog_files = context.get_run_plog_path(identifier, 0)
-
-        if not plog_files:
-            return None
-
-        max_timestamp = None
-
-        for plog_file in plog_files:
-            try:
-                last_line_timestamp = TimestampExtractor.get_last_line_timestamp(plog_file)
-                if last_line_timestamp:
-                    if max_timestamp is None or last_line_timestamp > max_timestamp:
-                        max_timestamp = last_line_timestamp
-            except Exception:
-                continue
-
-        return max_timestamp
 
     def generate_solution(self, context: FaultContext) -> List[str]:
         """
@@ -174,7 +118,17 @@ class ServerProcessExitRule(DecisionRule):
         # 格式化rankId列表
         rank_ids_str = ",".join(map(str, sorted(ranks_after_exit)))
 
-        return [
+        result = [
             f"通信域[{identifier}]中rank[{rank_ids_str}]在发起socket请求的时候，server节点的进程已经退出，server节点ip是{host_ip}，端口号是{port}",
             "请从业务上排查server节点进程提前退出的原因"
         ]
+
+        # 拼接分析过程
+        key = context.get('key')
+        if key:
+            analysis = self._build_analysis(key, ranks_after_exit, context)
+            if analysis:
+                result.append("")
+                result.extend(analysis)
+
+        return result

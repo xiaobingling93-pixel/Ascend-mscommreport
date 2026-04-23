@@ -17,7 +17,8 @@
 """
 测试 35_Server节点提前关闭端口监听
 
-测试场景：Server节点提前关闭端口监听，导致部分rank无法连接
+测试场景：Server节点进程退出，导致部分rank无法连接。
+由Server节点进程退出规则处理。
 """
 from pathlib import Path
 from tests.st.base import StandardStructureTestBase, PROJECT_ROOT
@@ -43,45 +44,35 @@ class Test35ServerClosedPort(StandardStructureTestBase):
         self._assert_solution_contains(
             fault_groups,
             fault_name="部分rank未连接到server节点",
-            expected_content="通信域[172.16.1.148%eth0_64000_0_1757081746616696]"
+            expected_content="通信域[172.16.1.148%eth0_64000_0_1757081746616696]中"
         )
 
     def test_04_solution_contains_rank_id(self):
-        """测试解决方案包含发起socket请求晚于server关闭的rankId"""
+        """测试解决方案包含server进程退出时发起请求的rankId"""
         fault_groups = self._analyze_test_case("35_Server节点提前关闭端口监听")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="部分rank未连接到server节点",
-            expected_content="rank[9]"
+            expected_content="rank[9]在发起socket请求的时候"
         )
 
-    def test_05_solution_contains_server_closed_message(self):
-        """测试解决方案包含server节点已关闭端口监听的提示"""
+    def test_05_solution_contains_server_exit(self):
+        """测试解决方案包含server节点进程退出提示"""
         fault_groups = self._analyze_test_case("35_Server节点提前关闭端口监听")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="部分rank未连接到server节点",
-            expected_content="server节点已经关闭端口监听"
+            expected_content="server节点的进程已经退出"
         )
 
-    def test_06_solution_contains_server_info(self):
-        """测试解决方案包含server节点的IP和端口信息"""
+    def test_06_solution_contains_root_cause_suggestion(self):
+        """测试解决方案包含根因排查建议"""
         fault_groups = self._analyze_test_case("35_Server节点提前关闭端口监听")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="部分rank未连接到server节点",
-            expected_content="server节点ip是172.16.1.248，端口号是64000"
-        )
-
-    def test_07_solution_contains_suggestion(self):
-        """测试解决方案包含排查建议"""
-        fault_groups = self._analyze_test_case("35_Server节点提前关闭端口监听")
-
-        self._assert_solution_contains(
-            fault_groups,
-            fault_name="部分rank未连接到server节点",
-            expected_content="请从业务上排查server节点提前关闭端口监听的原因"
+            expected_content="请从业务上排查server节点进程提前退出的原因"
         )

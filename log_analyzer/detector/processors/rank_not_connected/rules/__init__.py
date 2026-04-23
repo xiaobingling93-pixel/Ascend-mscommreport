@@ -23,10 +23,9 @@
 from .nic_mismatch_rule import NicMismatchRule
 from .no_comm_interface_rule import NoCommInterfaceRule
 from .all_comm_interface_rule import AllCommInterfaceRule
-from .comm_init_timeout_rule import CommInitTimeoutRule
+from .link_window_no_overlap_rule import LinkWindowNoOverlapRule
 from .root_node_not_listening_rule import RootNodeNotListeningRule
 from .client_not_initiate_socket_rule import ClientNotInitiateSocketRule
-from .server_closed_port_rule import ServerClosedPortRule
 from .server_process_exit_rule import ServerProcessExitRule
 from .large_cluster_rule import LargeClusterRule
 
@@ -34,10 +33,9 @@ __all__ = [
     'NicMismatchRule',
     'NoCommInterfaceRule',
     'AllCommInterfaceRule',
-    'CommInitTimeoutRule',
+    'LinkWindowNoOverlapRule',
     'RootNodeNotListeningRule',
     'ClientNotInitiateSocketRule',
-    'ServerClosedPortRule',
     'ServerProcessExitRule',
     'LargeClusterRule',
 ]

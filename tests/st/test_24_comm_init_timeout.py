@@ -17,7 +17,7 @@
 """
 测试 24_通信域初始化超时下发时间超过设定时间
 
-测试通信域创建接口下发时间差是否超过 HCCL_CONNECT_TIMEOUT。
+测试建链时间窗口无交集规则。
 """
 from pathlib import Path
 from tests.st.base import StandardStructureTestBase, PROJECT_ROOT
@@ -36,24 +36,24 @@ class Test24CommInitTimeout(StandardStructureTestBase):
         fault_groups = self._analyze_test_case("24_通信域初始化超时下发时间超过设定时间")
         self._assert_fault_exists(fault_groups, "部分rank未连接到server节点")
 
-    def test_03_solution_contains_timeout_info(self):
-        """测试解决方案包含时间差和超时值信息"""
+    def test_03_solution_contains_server_exit(self):
+        """测试解决方案包含server节点进程退出信息"""
         fault_groups = self._analyze_test_case("24_通信域初始化超时下发时间超过设定时间")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="部分rank未连接到server节点",
-            expected_content="与server节点通信域创建接口下发时间差值为"
+            expected_content="server节点的进程已经退出"
         )
 
-    def test_04_solution_contains_timeout_value(self):
-        """测试解决方案包含 HCCL_CONNECT_TIMEOUT 的值"""
+    def test_04_solution_contains_comm_domain(self):
+        """测试解决方案包含通信域信息"""
         fault_groups = self._analyze_test_case("24_通信域初始化超时下发时间超过设定时间")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="部分rank未连接到server节点",
-            expected_content="超过当前HCCL_CONNECT_TIMEOUT的值120s"
+            expected_content="通信域[hccl_world_group]中"
         )
 
     def test_05_solution_contains_rank_id(self):
@@ -63,33 +63,20 @@ class Test24CommInitTimeout(StandardStructureTestBase):
         self._assert_solution_contains(
             fault_groups,
             fault_name="部分rank未连接到server节点",
-            expected_content="rank[1]与server节点通信域创建接口下发时间差值为"
+            expected_content="rank[1]在发起socket请求的时候"
         )
 
-    def test_06_solution_contains_time_diff(self):
-        """测试解决方案包含正确的时间差值"""
-        fault_groups = self._analyze_test_case("24_通信域初始化超时下发时间超过设定时间")
-
-        # rank[0] 时间: 2025-03-14-15:35:49
-        # rank[1] 时间: 2025-03-14-15:38:49
-        # 时间差: 180秒
-        self._assert_solution_contains(
-            fault_groups,
-            fault_name="部分rank未连接到server节点",
-            expected_content="180s"
-        )
-
-    def test_07_solution_contains_root_cause_suggestion(self):
+    def test_06_solution_contains_root_cause_suggestion(self):
         """测试解决方案包含根因排查建议"""
         fault_groups = self._analyze_test_case("24_通信域初始化超时下发时间超过设定时间")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="部分rank未连接到server节点",
-            expected_content="需要从业务上排查算子下发超时时间的根因"
+            expected_content="请从业务上排查server节点进程提前退出的原因"
         )
 
-    def test_08_comm_info(self):
+    def test_07_comm_info(self):
         """测试通信域创建信息"""
         fault_groups = self._analyze_test_case("24_通信域初始化超时下发时间超过设定时间")
 
