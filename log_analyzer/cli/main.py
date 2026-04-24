@@ -26,6 +26,7 @@ import os
 from pathlib import Path
 from typing import List, Dict
 
+from log_analyzer.cli.mslogo import CliLogo
 from ..config import ConfigManager, VariableReplacer
 from ..parser import (
     LogParser, CommunicationInfo, ProgressTracker
@@ -283,6 +284,13 @@ def create_parser() -> argparse.ArgumentParser:
 
     return parser
 
+def _print_ms_logo():
+    """
+   打印MindStudio统一logo
+
+   """
+    logo = CliLogo()
+    logo.print_logo()
 
 def main():
     """
@@ -291,6 +299,7 @@ def main():
     Returns:
         int: 退出码
     """
+    _print_ms_logo()
     parser = create_parser()
     args = parser.parse_args()
     cli = LogAnalyzerCLI()
