@@ -59,7 +59,7 @@ class SocketRequestChecker:
         for line in SocketEventTimeFinder.iter_lines_with_keyword(plog_files, SocketEventTimeFinder.SOCKET_CONNECT_KEYWORDS):
             if identifier not in line:
                 continue
-            if f'remote_ip[{host_ip}]' not in line:
+            if f'remote_ip[{host_ip}]' not in line and f'remoteIp[{host_ip}]' not in line:
                 continue
             return True
 

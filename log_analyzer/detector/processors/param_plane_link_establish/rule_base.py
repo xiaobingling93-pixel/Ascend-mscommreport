@@ -21,7 +21,7 @@
 """
 import unicodedata
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from ..base import DecisionRule
 from ...fault_constants import FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT
@@ -32,6 +32,18 @@ from .collectors.connect_info_collector import ConnectInfoCollector
 from .collectors.timeout_collector import TimeoutCollector
 from .collectors.entry_collector import EntryCollector
 from .collectors.algorithm_collector import AlgorithmCollector
+
+
+class RingInfo(NamedTuple):
+    """环形建链故障信息
+
+    当多个 rank 之间的建链故障形成环形依赖时，记录环中每个 rank 的信息。
+    如果链路中断（无环），记录链路中所有已访问的 rank。
+    """
+    ranks: Tuple[int, ...]                      # 环中（或链路中）所有 rank（按链路追踪顺序）
+    debug_plog_paths: Tuple[Tuple[str, ...], ...]  # 每个 rank 对应的所有 debug plog 文件路径
+    link_infos: Tuple[LinkInfo, ...]             # 每个 rank 的 LinkInfo
+    is_ring: bool                                # True 表示成环，False 表示链路中断
 
 
 class ParamPlaneLinkEstablishRule(DecisionRule):
@@ -56,6 +68,9 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
     # 超时信息缓存：key 为 fault group key，value 为 (timeout, raw_line) 或 None
     _timeout_info_cache: Dict[str, Optional[Tuple[int, str]]] = {}
 
+    # ring_info 缓存：key 为 fault group key，value 为 RingInfo
+    _ring_info_cache: Dict[str, Optional[RingInfo]] = {}
+
     def __init__(self, priority: int):
         """
         初始化参数面建链规则
@@ -64,6 +79,130 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
             priority: 优先级，数值越小优先级越高
         """
         super().__init__(priority)
+
+    @staticmethod
+    def prepare_ring_info(context: FaultContext, key: str) -> None:
+        """
+        追踪建链故障的 rank 链路，检测是否存在环形依赖。
+
+        从 context.faults 中找到当前故障组对应 identifier 下故障发生时间最早的
+        FaultInstance，获取其 rank 作为起始点。然后沿着 dest_rank 方向追踪链路，
+        直到发现环或链路中断。
+
+        Args:
+            context: 故障分析上下文
+            key: 当前处理的故障组 key
+        """
+        current_group = context.fault_groups.get(key)
+        if not current_group or current_group.category.level3 != FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT:
+            return
+
+        identifier = ParamPlaneLinkEstablishRule.get_identifier(context, key)
+        if not identifier:
+            ParamPlaneLinkEstablishRule._ring_info_cache[key] = None
+            return
+
+        # 从 context.faults 中筛选同 identifier 的 param_plane_link_establish_timeout 故障
+        candidate_faults = [
+            f for f in context.faults
+            if f.category.level3 == FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT
+            and f.comm_info
+            and f.comm_info.identifier == identifier
+        ]
+        if not candidate_faults:
+            ParamPlaneLinkEstablishRule._ring_info_cache[key] = None
+            return
+
+        # 按故障发生时间排序，取最早的
+        candidate_faults.sort(key=lambda f: f.timestamp or '')
+        earliest_fault = candidate_faults[0]
+        start_rank = earliest_fault.comm_info.rank_id
+
+        # 获取起始 rank 的 debug plog 路径和 LinkInfo
+        start_debug_paths = context.get_debug_plog_path(identifier, start_rank)
+        if not start_debug_paths:
+            ParamPlaneLinkEstablishRule._ring_info_cache[key] = None
+            return
+
+        start_link_info = LinkInfoCollector.extract_from_paths_by_src_rank(start_debug_paths, start_rank)
+        if not start_link_info:
+            ParamPlaneLinkEstablishRule._ring_info_cache[key] = None
+            return
+
+        # 追踪链路
+        # visited: rank -> (debug_plog_paths_tuple, link_info)
+        visited: Dict[int, Tuple[Tuple[str, ...], LinkInfo]] = {start_rank: (tuple(start_debug_paths), start_link_info)}
+
+        next_rank = start_link_info.dest_rank
+
+        while next_rank is not None:
+            if next_rank in visited:
+                # 检测到环，从 next_rank 开始截取环中的 rank
+                ordered_ranks = list(visited.keys())
+                ring_start_index = ordered_ranks.index(next_rank)
+
+                ring_ranks = []
+                ring_plog_paths = []
+                ring_link_infos = []
+                for rank in ordered_ranks[ring_start_index:]:
+                    plog_paths, li = visited[rank]
+                    ring_ranks.append(rank)
+                    ring_plog_paths.append(plog_paths)
+                    ring_link_infos.append(li)
+
+                ParamPlaneLinkEstablishRule._ring_info_cache[key] = RingInfo(
+                    ranks=tuple(ring_ranks),
+                    debug_plog_paths=tuple(ring_plog_paths),
+                    link_infos=tuple(ring_link_infos),
+                    is_ring=True,
+                )
+                return
+
+            # 获取 next_rank 的 debug plog
+            next_debug_paths = context.get_debug_plog_path(identifier, next_rank)
+            if not next_debug_paths:
+                # 链路中断：记录最后一对 src_rank 和 dest_rank
+                chain_ranks = list(visited.keys()) + [next_rank]
+                chain_plog_paths = [v[0] for v in visited.values()] + [()]
+                chain_link_infos = tuple(v[1] for v in visited.values())
+                ParamPlaneLinkEstablishRule._ring_info_cache[key] = RingInfo(
+                    ranks=tuple(chain_ranks),
+                    debug_plog_paths=tuple(chain_plog_paths),
+                    link_infos=chain_link_infos,
+                    is_ring=False,
+                )
+                return
+
+            # 从 debug plog 中提取 LinkInfo
+            next_link_info = LinkInfoCollector.extract_from_paths_by_src_rank(next_debug_paths, next_rank)
+            if not next_link_info:
+                # 链路中断：该 rank 无 LINK_ERROR_INFO
+                chain_ranks = list(visited.keys()) + [next_rank]
+                chain_plog_paths = [v[0] for v in visited.values()] + [tuple(next_debug_paths)]
+                chain_link_infos = tuple(v[1] for v in visited.values())
+                ParamPlaneLinkEstablishRule._ring_info_cache[key] = RingInfo(
+                    ranks=tuple(chain_ranks),
+                    debug_plog_paths=tuple(chain_plog_paths),
+                    link_infos=chain_link_infos,
+                    is_ring=False,
+                )
+                return
+
+            visited[next_rank] = (tuple(next_debug_paths), next_link_info)
+            next_rank = next_link_info.dest_rank
+
+    @staticmethod
+    def get_ring_info(key: str) -> Optional[RingInfo]:
+        """
+        获取缓存中的环形建链故障信息。
+
+        Args:
+            key: 当前处理的 fault group key
+
+        Returns:
+            RingInfo 如果检测到环或链路中断，否则返回 None
+        """
+        return ParamPlaneLinkEstablishRule._ring_info_cache.get(key)
 
     @staticmethod
     def prepare_link_info(context: FaultContext, key: str) -> None:
@@ -78,24 +217,24 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
         if not current_group or current_group.category.level3 != FAULT_PARAM_PLANE_LINK_ESTABLISH_TIMEOUT:
             return
 
-        earliest: Optional[LinkInfo] = None
-        for comm_domain_item in current_group.comm_infos.values():
-            comm_info = comm_domain_item.comm_info
-            if not comm_info or not comm_info.identifier:
-                continue
+        ring_info = ParamPlaneLinkEstablishRule._ring_info_cache.get(key)
+        if not ring_info or not ring_info.ranks:
+            ParamPlaneLinkEstablishRule._link_info_cache[key] = None
+            return
 
-            debug_plog_paths = context.get_debug_plog_path(comm_info.identifier, comm_info.rank_id)
-            if not debug_plog_paths:
-                continue
+        identifier = ParamPlaneLinkEstablishRule.get_identifier(context, key)
+        if not identifier:
+            ParamPlaneLinkEstablishRule._link_info_cache[key] = None
+            return
 
-            link_info = LinkInfoCollector.extract_from_paths(debug_plog_paths)
-            if not link_info:
-                continue
+        first_rank = ring_info.ranks[0]
+        debug_plog_paths = context.get_debug_plog_path(identifier, first_rank)
+        if not debug_plog_paths:
+            ParamPlaneLinkEstablishRule._link_info_cache[key] = None
+            return
 
-            if earliest is None or (link_info.timestamp and link_info.timestamp < earliest.timestamp):
-                earliest = link_info
-
-        ParamPlaneLinkEstablishRule._link_info_cache[key] = earliest
+        link_info = LinkInfoCollector.extract_from_paths_by_src_rank(debug_plog_paths, first_rank)
+        ParamPlaneLinkEstablishRule._link_info_cache[key] = link_info
 
     @staticmethod
     def get_link_info(key: str) -> Optional[LinkInfo]:
@@ -124,7 +263,7 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
         if not link_info:
             return []
 
-        lines = ["首报错失败的rank对如下："]
+        lines = ["报错失败的根因rank对如下："]
         if link_info.raw_line:
             lines.append(link_info.raw_line)
 
@@ -386,12 +525,14 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
             ParamPlaneLinkEstablishRule._connect_info_cache.pop(key, None)
             ParamPlaneLinkEstablishRule._process_exit_ts_cache.pop(key, None)
             ParamPlaneLinkEstablishRule._timeout_info_cache.pop(key, None)
+            ParamPlaneLinkEstablishRule._ring_info_cache.pop(key, None)
         else:
             ParamPlaneLinkEstablishRule._link_info_cache.clear()
             ParamPlaneLinkEstablishRule._listen_info_cache.clear()
             ParamPlaneLinkEstablishRule._connect_info_cache.clear()
             ParamPlaneLinkEstablishRule._process_exit_ts_cache.clear()
             ParamPlaneLinkEstablishRule._timeout_info_cache.clear()
+            ParamPlaneLinkEstablishRule._ring_info_cache.clear()
 
     @staticmethod
     def prepare_listen_info(context: FaultContext, key: str) -> None:
@@ -416,12 +557,10 @@ class ParamPlaneLinkEstablishRule(DecisionRule):
             # client 视角：server 在 dest_rank，监听 IP/端口为 dest_ip/dest_port
             server_rank = link_info.dest_rank
             server_ip = link_info.dest_ip
-            server_port = link_info.dest_port
         else:
             # server 视角：server 在 src_rank，监听 IP/端口为 src_ip/src_port
             server_rank = link_info.src_rank
             server_ip = link_info.src_ip
-            server_port = link_info.src_port
 
         run_plog_paths = context.get_run_plog_path(identifier, server_rank)
         if not run_plog_paths:

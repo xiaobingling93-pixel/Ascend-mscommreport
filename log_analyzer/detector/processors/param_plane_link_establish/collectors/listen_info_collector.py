@@ -31,12 +31,11 @@ class ListenInfoCollector:
     # ra_socket_listen_start 日志行匹配模式
     # 例如: [INFO]HCCP(64452,python):...ra_socket_listen_start : Input parameters: [0]th, phy_id[0], local_ip[172.16.1.248], port[64000],
     #       [INFO]HCCP(18329,python):...ra_socket_listen_start(885) : Input parameters: [0]th, phy_id[0], local_ip[172.27.51.26], port[16666]
+    #       [INFO]HCCP(18329,python):...ra_socket_listen_start(885) : Input parameters: [0]th, phy_id[0], localIp[172.27.51.26], port[16666]
     LISTEN_START_PATTERN = re.compile(
-        r'local_ip\[([^\]]+)\]'
+        r'local_?ip\[([^\]]+)\]',
+        re.IGNORECASE
     )
-
-    # port 提取模式（从 ra_socket_listen_start 日志行中）
-    LISTEN_PORT_PATTERN = re.compile(r'port\[(\d+)\]', re.IGNORECASE)
 
     # 日志时间戳匹配模式
     TIMESTAMP_PATTERN = TIMESTAMP_PATTERN

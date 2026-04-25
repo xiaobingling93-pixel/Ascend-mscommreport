@@ -138,6 +138,65 @@ class LinkInfoCollector:
         return None
 
     @staticmethod
+    def extract_from_file_by_src_rank(file_path: str, src_rank: int) -> Optional[LinkInfo]:
+        """
+        从文件中提取第一个 src_rank 匹配的 LINK_ERROR_INFO
+
+        支持两种日志格式：
+        1. LINK_ERROR_INFO 表格格式（含端口号和角色信息）
+        2. Transport init error 格式（无端口号，角色为 client）
+
+        Args:
+            file_path: 日志文件路径
+            src_rank: 要求的 src_rank 值
+
+        Returns:
+            LinkInfo 如果找到，否则返回 None
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if not line.startswith('[ERROR] HCCL'):
+                        continue
+
+                    # 优先匹配 LINK_ERROR_INFO 表格格式（按 | 数量过滤 + split 提取）
+                    if line.count('|') >= 6:
+                        columns = line.split('|')
+                        m1 = LinkInfoCollector._IP_RANK_PATTERN.search(columns[1])
+                        m2 = LinkInfoCollector._IP_RANK_PATTERN.search(columns[3])
+                        if m1 and m2:
+                            dest_port = columns[2].strip()
+                            src_port = columns[4].strip()
+                            my_role = columns[5].strip()
+                            if my_role:
+                                link_info = LinkInfoCollector._parse_link_info_from_line(line, (
+                                    m1.group(1), dest_port, m1.group(2),
+                                    m2.group(1), m2.group(2), src_port,
+                                    my_role,
+                                ))
+                                if link_info.src_rank == src_rank:
+                                    return link_info
+
+                    # 匹配 Transport init error 格式
+                    if 'Transport init error' in line:
+                        m_rank = LinkInfoCollector._RANK_PATTERN.search(line)
+                        m_local_ip = LinkInfoCollector._LOCAL_IP_PATTERN.search(line)
+                        m_remote_rank = LinkInfoCollector._REMOTE_RANK_PATTERN.search(line)
+                        m_remote_ip = LinkInfoCollector._REMOTE_IP_PATTERN.search(line)
+                        if m_rank and m_local_ip and m_remote_rank and m_remote_ip:
+                            link_info = LinkInfoCollector._parse_link_info_from_line(line, (
+                                m_remote_ip.group(1), '', m_remote_rank.group(1),
+                                m_local_ip.group(1), m_rank.group(1), '',
+                                'client',
+                            ))
+                            if link_info.src_rank == src_rank:
+                                return link_info
+        except Exception:
+            pass
+
+        return None
+
+    @staticmethod
     def extract_from_paths(file_paths: List[str]) -> Optional[LinkInfo]:
         """
         从多个文件中提取第一个 LINK_ERROR_INFO
@@ -150,6 +209,25 @@ class LinkInfoCollector:
         """
         for file_path in file_paths:
             result = LinkInfoCollector.extract_from_file(file_path)
+            if result:
+                return result
+
+        return None
+
+    @staticmethod
+    def extract_from_paths_by_src_rank(file_paths: List[str], src_rank: int) -> Optional[LinkInfo]:
+        """
+        从多个文件中提取第一个 src_rank 匹配的 LINK_ERROR_INFO
+
+        Args:
+            file_paths: 日志文件路径列表
+            src_rank: 要求的 src_rank 值
+
+        Returns:
+            LinkInfo 如果找到，否则返回 None
+        """
+        for file_path in file_paths:
+            result = LinkInfoCollector.extract_from_file_by_src_rank(file_path, src_rank)
             if result:
                 return result
 

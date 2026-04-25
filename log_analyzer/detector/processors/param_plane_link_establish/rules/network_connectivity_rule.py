@@ -126,6 +126,16 @@ class NetworkConnectivityRule(ParamPlaneLinkEstablishRule):
             ]
 
         key = context.get('network_connectivity_key')
+
+        entry_algorithm = self.build_entry_algorithm_solution(
+            context, identifier, src_rank, dest_rank,
+            ""
+        )
+        if entry_algorithm:
+            solution.append("")
+            solution.append("两端算子下发情况如下:")
+            solution.extend(entry_algorithm)
+
         analysis = self.build_analysis_step(key) if key else []
         if analysis:
             solution.append("")

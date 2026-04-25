@@ -128,7 +128,7 @@ class ServerNoErrorRule(ParamPlaneLinkEstablishRule):
             prefix_text = (
                 f"通信域{identifier}中rank[{src_rank}]作为client向rank[{dest_rank}]建链超时，"
                 f"rank[{src_rank}]作为client端发起socket请求的时间窗口与rank[{dest_rank}]作为server端accept时间窗口无交集，"
-                f"需要排查client端算子是否下发，可以设置export HCCL_ENTRY_LOG_ENABLE=1记录通信算子下发，"
+                f"需要排查两端算子是否下发，可以设置export HCCL_ENTRY_LOG_ENABLE=1记录通信算子下发，"
                 f"当前通信算子执行次数统计如下: "
             )
         else:

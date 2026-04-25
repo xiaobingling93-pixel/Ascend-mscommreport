@@ -92,7 +92,7 @@ class SocketEventTimeFinder:
 
         results: List[Tuple[datetime, str]] = []
         for line in SocketEventTimeFinder.iter_lines_with_keyword(plog_files, SocketEventTimeFinder.SOCKET_LISTEN_KEYWORDS):
-            if f'local_ip[{host_ip}]' not in line:
+            if f'local_ip[{host_ip}]' not in line and f'localIp[{host_ip}]' not in line:
                 continue
             timestamp = TimestampExtractor.extract_from_log_line(line)
             if timestamp:
@@ -121,7 +121,7 @@ class SocketEventTimeFinder:
         for line in SocketEventTimeFinder.iter_lines_with_keyword(plog_files, SocketEventTimeFinder.SOCKET_CONNECT_KEYWORDS):
             if identifier not in line:
                 continue
-            if f'remote_ip[{host_ip}]' not in line:
+            if f'remote_ip[{host_ip}]' not in line and f'remoteIp[{host_ip}]' not in line:
                 continue
             timestamp = TimestampExtractor.extract_from_log_line(line)
             if timestamp:

@@ -65,6 +65,8 @@ class ParamPlaneLinkEstablishDecisionEngine:
             context: 故障分析上下文
             key: 当前处理的故障组 key
         """
+        # 追踪建链故障的 rank 链路，检测环形依赖
+        ParamPlaneLinkEstablishRule.prepare_ring_info(context, key)
         # 一次性提取所有 LINK_ERROR_INFO 并缓存，供所有规则共享
         ParamPlaneLinkEstablishRule.prepare_link_info(context, key)
         # 提取 server 节点监听信息并缓存

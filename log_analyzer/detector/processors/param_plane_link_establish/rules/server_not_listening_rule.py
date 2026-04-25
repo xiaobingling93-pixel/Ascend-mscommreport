@@ -97,6 +97,8 @@ class ServerNotListeningRule(ParamPlaneLinkEstablishRule):
             f"请联系HCCL专家排查未监听原因"
         ]
 
+        solution.extend(self.build_process_id_lines(context, identifier, src_rank, dest_rank))
+
         key = context.get('server_not_listening_key')
         analysis = self.build_analysis_step(key) if key else []
         if analysis:
