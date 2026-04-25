@@ -15,7 +15,7 @@
 # -------------------------------------------------------------------------
 
 """
-HCCL初始化参数一致性校验
+BatchSendRecv通信原语发送接收不一致检查
 
 对比所以run目录下plog日志中HCCL初始配置信息
 """
@@ -67,7 +67,7 @@ class SendRecvDiffRule(DecisionRule):
         BatchSendRecv通信原语发送接收一致性校验
 
         Args:
-            priority: 优先级，数值越小优先级越高，默认为40
+            priority: 优先级，数值越小优先级越高，默认为10
         """
         super().__init__(priority=priority)
         self.send_recv_diff_extractor = SendRecvDiffExtractor()
@@ -211,7 +211,7 @@ class SendRecvDiffRule(DecisionRule):
                         error_flag = True
                         solution_context += f"\n分组{tag}的rank[{send_recv_group.local_rank}]发送到rank[{send_recv_group.remote_rank}]"
                         solution_context += "存在接收发送数据类型不一致问题\n"
-                        solution_context += f"发送数据类型{send_data.data_count}，接收数据类型{recv_data.data_count}\n"
+                        solution_context += f"发送数据类型{send_data.data_type}，接收数据类型{recv_data.data_type}\n"
 
                     if error_flag:
                         solution_context += f"发送日志路径：{send_data.path}\n"
@@ -261,7 +261,7 @@ class SendRecvDiffRule(DecisionRule):
 
     def apply(self, context: FaultContext, key: str) -> None:
         """
-        应用未下发通信域创建接口规则
+        BatchSendRecv通信原语发送接收不一致解决方案
 
         Args:
             context: 故障分析上下文

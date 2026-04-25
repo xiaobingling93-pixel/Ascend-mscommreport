@@ -46,21 +46,21 @@ class Test38HCCLConfigDiff(StandardStructureTestBase):
         )
 
     def test_05_solution_contains_timeout_check(self):
-        """测试解决方案包含异常rank id统计"""
+        """测试解决方案包含timeout配置不一致"""
         fault_groups = self._analyze_test_case("38_hccl配置一致性")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="HCCL初始配置不一致",
-            expected_content="connect_timeout"
+            expected_content="HCCL_CONNECT_TIMEOUT"
         )
 
     def test_06_solution_contains_pcie_check(self):
-        """测试解决方案包含异常rank对应的error日志路径"""
+        """测试解决方案包含异常pcie配置不一致"""
         fault_groups = self._analyze_test_case("38_hccl配置一致性")
 
         self._assert_solution_contains(
             fault_groups,
             fault_name="HCCL初始配置不一致",
-            expected_content="pcie_enable"
+            expected_content="HCCL_INTRA_PCIE_ENABLE"
         )

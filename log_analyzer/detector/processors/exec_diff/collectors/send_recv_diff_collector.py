@@ -84,7 +84,7 @@ class SendRecvDiffExtractor:
         send_recv_list = []
 
         process_run_logs = SendRecvDiffExtractor._get_rank_run_log(context)
-        if not  process_run_logs:
+        if not process_run_logs:
             return send_recv_list
 
         for _, log_files in process_run_logs.items():
